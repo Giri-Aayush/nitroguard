@@ -3,6 +3,8 @@ import { Channel } from './Channel.js';
 import { ChannelFSM } from './ChannelFSM.js';
 import { VersionManager } from './VersionManager.js';
 import { MemoryAdapter } from '../persistence/MemoryAdapter.js';
+import { ClearNodeMonitor } from '../dispute/ClearNodeMonitor.js';
+import { DisputeWatcher } from '../dispute/DisputeWatcher.js';
 import {
   InvalidConfigError,
   ChannelNotFoundError,
@@ -10,28 +12,24 @@ import {
 import type {
   OpenConfig,
   RestoreConfig,
-  ChannelStatus,
   ChannelParams,
   AssetAllocation,
 } from './types.js';
-import type { PersistenceAdapter } from '../persistence/PersistenceAdapter.js';
 import type { ClearNodeTransport } from './transport.js';
 
 /**
  * Factory for creating and restoring channels.
  *
- * In Phase 1, the transport is a stub that requires MockClearNode or a real
- * ClearNode for integration/sandbox use. The `open()` flow wires everything
- * together into a `Channel` instance.
- *
- * Phase 2 introduces real ClearNode transport via yellow-ts + nitrolite.
+ * Wires together Channel, FSM, VersionManager, persistence, transport,
+ * CustodyClient (Phase 2), ClearNodeMonitor (Phase 2), and DisputeWatcher
+ * (Phase 2) into a ready-to-use Channel instance.
  */
 export class ChannelFactory {
 
   /**
    * Open a new state channel with ClearNode.
    *
-   * Full flow (Phase 1):
+   * Full flow:
    * 1. Validate config
    * 2. Connect to ClearNode transport
    * 3. Discover counterparty address
@@ -39,7 +37,8 @@ export class ChannelFactory {
    * 5. Open channel via transport (send CHANOPEN state)
    * 6. Transition FSM: VOID → INITIAL → ACTIVE
    * 7. Persist initial state
-   * 8. Return Channel instance
+   * 8. Wire ClearNodeMonitor and DisputeWatcher (if custodyClient provided)
+   * 9. Return Channel instance
    */
   static async open(config: OpenConfig, transport: ClearNodeTransport): Promise<Channel> {
     validateOpenConfig(config);
@@ -64,7 +63,6 @@ export class ChannelFactory {
     const fsm = new ChannelFSM();
     const versions = new VersionManager(0);
 
-    // Wire up status-change callbacks
     if (config.onStatusChange) {
       fsm.onStatusChange(config.onStatusChange);
     }
@@ -79,9 +77,10 @@ export class ChannelFactory {
       versionManager: versions,
       persistence,
       transport,
+      custodyClient: config.custodyClient,
     });
 
-    // Wire up remaining callbacks
+    // Wire up callbacks
     if (config.onStateUpdate) {
       channel.on('stateUpdate', config.onStateUpdate);
     }
@@ -120,14 +119,62 @@ export class ChannelFactory {
 
     fsm.transition('ACTIVE', 'open');
 
+    // Phase 2: wire ClearNodeMonitor
+    if (config.clearnodeSilenceTimeout && config.clearnodeSilenceTimeout > 0) {
+      const monitor = new ClearNodeMonitor(channelId, {
+        silenceTimeout: config.clearnodeSilenceTimeout,
+      });
+
+      const unsubMsg = transport.onMessage((msg) => monitor.handleMessage(msg));
+
+      monitor.on('silence', () => {
+        if (config.autoDispute !== false && channel.status === 'ACTIVE') {
+          channel.forceClose().catch(() => {
+            // Error surfaced via channel 'error' event inside forceClose
+          });
+        }
+      });
+
+      monitor.start();
+
+      channel.on('statusChange', (to) => {
+        if (to === 'FINAL' || to === 'VOID') {
+          monitor.stop();
+          unsubMsg();
+        }
+      });
+    }
+
+    // Phase 2: wire DisputeWatcher
+    if (config.custodyClient && (config.autoDispute !== false)) {
+      const watcher = new DisputeWatcher({
+        custodyClient: config.custodyClient,
+        persistence,
+      });
+
+      const latestState = await persistence.loadLatest(channelId);
+      if (latestState) {
+        watcher.watch(channelId, latestState);
+      }
+
+      channel.on('stateUpdate', (_, state) => {
+        watcher.updateState(channelId, state);
+      });
+
+      watcher.on('responded', (cId: unknown, txHash: unknown) => {
+        if (cId === channelId) {
+          channel._onChallengeCleared(txHash as `0x${string}`);
+        }
+      });
+
+      await watcher.start();
+    }
+
     return channel;
   }
 
   /**
-   * Restore a channel from persistence.
-   *
-   * Used after a process restart or tab refresh. Reconnects to ClearNode
-   * and resumes from the latest persisted version.
+   * Restore a channel from persistence after a process restart or tab refresh.
    */
   static async restore(
     channelId: string,
@@ -143,9 +190,8 @@ export class ChannelFactory {
 
     await transport.connect();
 
-    // Reconstruct from persisted state
     const fsm = new ChannelFSM();
-    fsm._forceSet('ACTIVE'); // Verified against on-chain in Phase 3
+    fsm._forceSet('ACTIVE');
 
     const versions = new VersionManager(latestState.version);
 
@@ -160,10 +206,9 @@ export class ChannelFactory {
       fsm.onStatusChange(config.onStatusChange);
     }
 
-    // We don't have the original ChannelParams — derive participants from signers
     const channelParams: ChannelParams = {
       participants: [config.signer.address, transport.clearNodeAddress],
-      nonce: 0n, // Reconstructed — accurate params stored in Phase 3
+      nonce: 0n,
       appDefinition: '0x0000000000000000000000000000000000000000',
       challengeDuration: 3600,
       chainId: config.chain.id,
@@ -179,10 +224,33 @@ export class ChannelFactory {
       versionManager: versions,
       persistence,
       transport,
+      custodyClient: config.custodyClient,
     });
 
     if (config.onError) {
       channel.on('error', config.onError);
+    }
+
+    // Phase 2: re-attach DisputeWatcher on restore
+    if (config.custodyClient) {
+      const watcher = new DisputeWatcher({
+        custodyClient: config.custodyClient,
+        persistence,
+      });
+
+      watcher.watch(channelId, latestState);
+
+      channel.on('stateUpdate', (_, state) => {
+        watcher.updateState(channelId, state);
+      });
+
+      watcher.on('responded', (cId: unknown, txHash: unknown) => {
+        if (cId === channelId) {
+          channel._onChallengeCleared(txHash as `0x${string}`);
+        }
+      });
+
+      await watcher.start();
     }
 
     return channel;
@@ -209,7 +277,6 @@ export class ChannelFactory {
 
   /**
    * Compute the deterministic channel ID from channel parameters.
-   * Matches the on-chain keccak256(abi.encode(channel)) computation.
    */
   static computeChannelId(params: ChannelParams): string {
     return computeChannelId(params);
@@ -219,7 +286,6 @@ export class ChannelFactory {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function computeChannelId(params: ChannelParams): string {
-  // keccak256(abi.encode(participants, nonce, appDefinition, challengeDuration, chainId))
   return keccak256(
     encodePacked(
       ['address', 'address', 'uint256', 'address', 'uint64', 'uint256'],

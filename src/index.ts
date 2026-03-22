@@ -25,7 +25,22 @@ export { ChannelFSM } from './channel/ChannelFSM.js';
 export { VersionManager } from './channel/VersionManager.js';
 
 export { MemoryAdapter } from './persistence/MemoryAdapter.js';
+export { IndexedDBAdapter } from './persistence/IndexedDBAdapter.js';
+export { LevelDBAdapter } from './persistence/LevelDBAdapter.js';
 export type { PersistenceAdapter } from './persistence/PersistenceAdapter.js';
+
+export { CustodyClient } from './contracts/CustodyClient.js';
+
+export { DisputeWatcher } from './dispute/DisputeWatcher.js';
+export { ChallengeManager } from './dispute/ChallengeManager.js';
+export { ClearNodeMonitor } from './dispute/ClearNodeMonitor.js';
+export type {
+  ICustodyClient,
+  DisputeWatcherConfig,
+  ClearNodeMonitorConfig,
+  DisputeWatcherEvent,
+  CustodyClientConfig,
+} from './dispute/types.js';
 
 export { ViemSigner } from './signing/adapters/ViemSigner.js';
 export { RawSigner } from './signing/adapters/RawSigner.js';
@@ -74,35 +89,19 @@ export type { ClearNodeTransport } from './channel/transport.js';
 // ─── NitroGuard namespace ─────────────────────────────────────────────────────
 
 import { ChannelFactory } from './channel/ChannelFactory.js';
-import type { OpenConfig, RestoreConfig, ChannelStatus, ChannelParams } from './channel/types.js';
+import type { OpenConfig, RestoreConfig, ChannelParams } from './channel/types.js';
 import type { ClearNodeTransport } from './channel/transport.js';
 
 export const NitroGuard = {
-  /**
-   * Open a new state channel.
-   *
-   * @param config - Channel configuration
-   * @param transport - ClearNode transport (Phase 1: inject manually;
-   *                    Phase 2: built-in yellow-ts transport)
-   */
   open: (config: OpenConfig, transport: ClearNodeTransport) =>
     ChannelFactory.open(config, transport),
 
-  /**
-   * Restore a channel from persistence after a disconnect or restart.
-   */
   restore: (channelId: string, config: RestoreConfig, transport: ClearNodeTransport) =>
     ChannelFactory.restore(channelId, config, transport),
 
-  /**
-   * Restore all channels found in persistence.
-   */
   restoreAll: (config: RestoreConfig, transport: ClearNodeTransport) =>
     ChannelFactory.restoreAll(config, transport),
 
-  /**
-   * Compute the deterministic channel ID from channel parameters.
-   */
   computeChannelId: (params: ChannelParams) =>
     ChannelFactory.computeChannelId(params),
 };

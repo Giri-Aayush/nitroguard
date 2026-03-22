@@ -181,6 +181,8 @@ export interface OpenConfig {
   // Dispute
   autoDispute?: boolean;
   clearnodeSilenceTimeout?: number;
+  /** Phase 2: inject a custody client (use MockCustodyClient in tests) */
+  custodyClient?: import('../dispute/types.js').ICustodyClient;
 
   // Callbacks
   onStatusChange?: (status: ChannelStatus, prev: ChannelStatus) => void;
@@ -200,6 +202,8 @@ export interface RestoreConfig {
   rpcUrl: string;
   custodyAddress?: `0x${string}`;
   persistence?: import('../persistence/PersistenceAdapter.js').PersistenceAdapter;
+  /** Phase 2: inject a custody client for dispute protection after restore */
+  custodyClient?: import('../dispute/types.js').ICustodyClient;
   onStatusChange?: (status: ChannelStatus, prev: ChannelStatus) => void;
   onError?: (error: Error) => void;
 }

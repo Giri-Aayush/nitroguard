@@ -8,6 +8,7 @@ import {
 } from '../errors/index.js';
 import type { PersistenceAdapter } from '../persistence/PersistenceAdapter.js';
 import type { ClearNodeTransport } from './transport.js';
+import type { ICustodyClient } from '../dispute/types.js';
 import type {
   ChannelStatus,
   ChannelEvent,
@@ -54,6 +55,9 @@ export class Channel {
   private readonly _transport: ClearNodeTransport;
   private readonly _params: ChannelParams;
 
+  // ─── Phase 2: on-chain client (optional — stubs used when absent) ─────────
+  private readonly _custody: ICustodyClient | null;
+
   // ─── Config ───────────────────────────────────────────────────────────────
   private readonly _defaultSendTimeout: number;
   private readonly _defaultCloseTimeout: number;
@@ -64,6 +68,10 @@ export class Channel {
   // ─── Send queue mutex ─────────────────────────────────────────────────────
   // Ensures sends are processed one at a time to prevent version conflicts.
   private _sendQueue: Promise<SendResult> = Promise.resolve({} as SendResult);
+
+  // ─── forceClose mutex ─────────────────────────────────────────────────────
+  private _forceCloseInProgress = false;
+  private _forceClosePromise: Promise<ForceCloseResult> | null = null;
 
   constructor(params: ChannelConstructorParams) {
     this.id = params.channelId;
@@ -77,6 +85,7 @@ export class Channel {
     this._persistence = params.persistence;
     this._transport = params.transport;
     this._params = params.channelParams;
+    this._custody = params.custodyClient ?? null;
 
     this._defaultSendTimeout = params.defaultSendTimeout ?? 5_000;
     this._defaultCloseTimeout = params.defaultCloseTimeout ?? 10_000;
@@ -132,7 +141,6 @@ export class Channel {
       savedAt: Date.now(),
     };
 
-    // Sign the state with the client signer (implemented by transport layer)
     let signedState: SignedState;
     try {
       signedState = await this._transport.proposeState(
@@ -160,7 +168,7 @@ export class Channel {
   /**
    * Cooperatively close the channel.
    *
-   * Sends a CHANFINAL state to ClearNode and submits the mutual close
+   * Sends a CHANFINAL state to ClearNode, then submits the mutual close
    * transaction on-chain. If ClearNode doesn't co-sign within the timeout,
    * automatically calls `forceClose()` (unless `noAutoForce` is set).
    */
@@ -189,9 +197,7 @@ export class Channel {
       this._versions.rollback(v);
 
       if (!options?.noAutoForce) {
-        // ClearNode won't co-sign — go unilateral
         await this.forceClose();
-        // forceClose transitions to FINAL/VOID, so this path doesn't reach here normally
       }
       throw err;
     }
@@ -199,56 +205,98 @@ export class Channel {
     this._versions.confirm(v);
     await this._persistence.save(this.id, finalState);
 
-    // Submit mutual close on-chain via transport (which delegates to CustodyClient)
-    // For Phase 1, the transport handles the on-chain submission
+    // Phase 2: submit mutual close on-chain
+    let txHash: `0x${string}` = '0x0';
+    if (this._custody) {
+      txHash = await this._custody.close(this.id as `0x${string}`, finalState);
+    }
+
     this._fsm.transition('FINAL', 'close');
 
-    return {
-      txHash: '0x0' as `0x${string}`, // Placeholder — real tx hash from transport in Phase 2
-      finalState,
-    };
+    return { txHash, finalState };
   }
 
   /**
    * Unilaterally close the channel by submitting the latest persisted
    * co-signed state as a challenge on-chain.
    *
-   * If ClearNode goes offline or is acting maliciously, this method
-   * recovers user funds without ClearNode's cooperation.
+   * Calls `challenge()` on the Custody contract, then waits for the
+   * challenge window to expire (or for a successful `respond()` by the
+   * other party), then calls `withdraw()`.
    *
    * Throws `NoPersistenceError` if no persisted state exists.
+   * Concurrent calls return the same in-flight promise (mutex protected).
    */
   async forceClose(options?: ForceCloseOptions): Promise<ForceCloseResult> {
     if (this._fsm.status !== 'ACTIVE') {
       throw new InvalidTransitionError(this._fsm.status, 'forceClose');
     }
 
+    // Mutex: concurrent forceClose() calls all share the same promise
+    if (this._forceCloseInProgress && this._forceClosePromise) {
+      return this._forceClosePromise;
+    }
+
+    this._forceCloseInProgress = true;
+    this._forceClosePromise = this._doForceClose(options).finally(() => {
+      this._forceCloseInProgress = false;
+      this._forceClosePromise = null;
+    });
+
+    return this._forceClosePromise;
+  }
+
+  private async _doForceClose(options?: ForceCloseOptions): Promise<ForceCloseResult> {
     const stateToSubmit = options?.state ?? await this._persistence.loadLatest(this.id);
     if (!stateToSubmit) {
       throw new NoPersistenceError(this.id);
     }
 
+    let challengeTxHash: `0x${string}` = '0x0';
+    if (this._custody) {
+      challengeTxHash = await this._custody.challenge(
+        this.id as `0x${string}`,
+        stateToSubmit,
+      );
+    }
+
     this._fsm.transition('DISPUTE', 'forceClose');
     this._emit('challengeDetected', this.id);
 
-    // Phase 2: real on-chain challenge submission via CustodyClient
-    // Phase 1: stub — returns placeholder values
-    return {
-      challengeTxHash: '0x0' as `0x${string}`,
-      withdrawTxHash: '0x0' as `0x${string}`,
-      reclaimedAmounts: this.assets.map(a => ({
-        token: a.token,
-        amount: a.amount,
-      })),
-    };
+    // Wait for finalization, then withdraw
+    let withdrawTxHash: `0x${string}` = '0x0';
+    if (this._custody) {
+      const challengeWindowMs = this._params.challengeDuration * 1_000;
+      await this._custody.pollForFinalization(
+        this.id as `0x${string}`,
+        challengeWindowMs + 60_000, // 1-minute buffer
+        1_000,                       // poll every 1s in tests (Anvil fast-forward)
+      );
+
+      withdrawTxHash = await this._custody.withdraw(
+        this.id as `0x${string}`,
+        this.participants[0] as `0x${string}`,
+      );
+
+      this._fsm.transition('FINAL', 'finalized');
+      this._fsm.transition('VOID', 'withdraw');
+    }
+
+    const reclaimedAmounts: Amount[] = this.assets.map(a => ({
+      token: a.token,
+      amount: a.amount,
+    }));
+
+    this._emit('fundsReclaimed', this.id, reclaimedAmounts);
+
+    return { challengeTxHash, withdrawTxHash, reclaimedAmounts };
   }
 
   /**
    * Checkpoint the current latest state on-chain.
    *
    * Any future challenge must use a version higher than the checkpointed
-   * version. Call this periodically on long-lived channels to limit the
-   * challenge history window a malicious ClearNode could exploit.
+   * version. Call this periodically on long-lived channels.
    */
   async checkpoint(): Promise<CheckpointResult> {
     if (this._fsm.status !== 'ACTIVE') {
@@ -260,12 +308,12 @@ export class Channel {
       throw new NoPersistenceError(this.id);
     }
 
-    // Phase 2: submits to Custody contract
-    // Phase 1: stub
-    return {
-      txHash: '0x0' as `0x${string}`,
-      version: latestState.version,
-    };
+    let txHash: `0x${string}` = '0x0';
+    if (this._custody) {
+      txHash = await this._custody.checkpoint(this.id as `0x${string}`, latestState);
+    }
+
+    return { txHash, version: latestState.version };
   }
 
   /**
@@ -276,16 +324,19 @@ export class Channel {
       throw new InvalidTransitionError(this._fsm.status, 'withdraw');
     }
 
-    // Phase 2: submits withdraw() tx to Custody contract
-    // Phase 1: stub
+    let txHash: `0x${string}` = '0x0';
+    if (this._custody) {
+      txHash = await this._custody.withdraw(
+        this.id as `0x${string}`,
+        this.participants[0] as `0x${string}`,
+      );
+    }
+
     this._fsm.transition('VOID', 'withdraw');
 
     return {
-      txHash: '0x0' as `0x${string}`,
-      amounts: this.assets.map(a => ({
-        token: a.token,
-        amount: a.amount,
-      })),
+      txHash,
+      amounts: this.assets.map(a => ({ token: a.token, amount: a.amount })),
     };
   }
 
@@ -306,17 +357,6 @@ export class Channel {
 
   // ─── Event API ────────────────────────────────────────────────────────────
 
-  /**
-   * Subscribe to a channel event. Returns an unsubscribe function.
-   *
-   * ```ts
-   * const unsub = channel.on('statusChange', (status, prev) => {
-   *   console.log(`${prev} → ${status}`);
-   * });
-   * // later:
-   * unsub();
-   * ```
-   */
   on<E extends ChannelEvent>(
     event: E,
     listener: (...args: ChannelEventMap[E]) => void,
@@ -348,6 +388,19 @@ export class Channel {
       }
     }
   }
+
+  /**
+   * Called by DisputeWatcher when a challenge has been successfully responded to
+   * and the channel is back to ACTIVE on-chain.
+   *
+   * @internal
+   */
+  _onChallengeCleared(txHash: `0x${string}`): void {
+    if (this._fsm.status === 'DISPUTE') {
+      this._fsm.transition('ACTIVE', 'challengeResponseSucceeded');
+    }
+    this._emit('challengeResponded', this.id, txHash);
+  }
 }
 
 // ─── Constructor params ───────────────────────────────────────────────────────
@@ -362,6 +415,8 @@ export interface ChannelConstructorParams {
   versionManager: VersionManager;
   persistence: PersistenceAdapter;
   transport: ClearNodeTransport;
+  /** Phase 2: optional on-chain custody client. Stubs used when absent. */
+  custodyClient?: ICustodyClient;
   createdAt?: Date;
   defaultSendTimeout?: number;
   defaultCloseTimeout?: number;
