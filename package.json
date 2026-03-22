@@ -40,8 +40,10 @@
     "coverage": "vitest run --coverage",
     "prepublishOnly": "npm run typecheck && npm run build"
   },
+  "dependencies": {
+    "@erc7824/nitrolite": "^0.4.0"
+  },
   "peerDependencies": {
-    "@erc7824/nitrolite": ">=0.4.0",
     "viem": ">=2.0.0",
     "zod": ">=3.0.0"
   },
@@ -54,7 +56,6 @@
     }
   },
   "devDependencies": {
-    "@erc7824/nitrolite": "^0.4.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

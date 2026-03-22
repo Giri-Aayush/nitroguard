@@ -1,19 +1,26 @@
 <p align="center">
-  <img src="https://img.shields.io/npm/v/nitroguard?style=flat-square&color=F5C518&labelColor=000000&label=nitroguard" alt="npm" />
-  <img src="https://img.shields.io/github/actions/workflow/status/Giri-Aayush/nitroguard/ci.yml?style=flat-square&color=F5C518&labelColor=000000&label=CI" alt="CI" />
+  <a href="https://www.npmjs.com/package/nitroguard">
+    <img src="https://img.shields.io/npm/v/nitroguard?style=flat-square&color=F5C518&labelColor=000000&label=npm" alt="npm" />
+  </a>
+  <a href="https://github.com/Giri-Aayush/nitroguard/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/Giri-Aayush/nitroguard/ci.yml?style=flat-square&color=F5C518&labelColor=000000&label=CI" alt="CI" />
+  </a>
   <img src="https://img.shields.io/badge/ERC--7824-Yellow%20Network-F5C518?style=flat-square&labelColor=000000" alt="ERC-7824" />
   <img src="https://img.shields.io/badge/license-MIT-F5C518?style=flat-square&labelColor=000000" alt="MIT" />
 </p>
 
 <h1 align="center">nitroguard</h1>
 <p align="center">State channel lifecycle SDK for <a href="https://yellow.com">Yellow Network</a> / ERC-7824</p>
+<p align="center">
+  <a href="https://www.npmjs.com/package/nitroguard">npmjs.com/package/nitroguard</a>
+</p>
 
 ---
 
 `@erc7824/nitrolite` gives you the raw primitives. NitroGuard gives you a production-ready channel: state machine enforcement, automatic persistence, dispute protection, and typed payloads — all in one composable API.
 
 ```bash
-npm install nitroguard viem @erc7824/nitrolite
+npm install nitroguard viem
 ```
 
 ---
