@@ -1,6 +1,6 @@
 {
   "name": "nitroguard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Production-grade state channel lifecycle SDK for Yellow Network / ERC-7824",
   "keywords": [
     "yellow-network",
