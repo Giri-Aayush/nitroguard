@@ -1,0 +1,18 @@
+{
+  "name": "nitroguard-simple-payment-example",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Simple payment example for NitroGuard",
+  "scripts": {
+    "start": "ts-node index.ts"
+  },
+  "dependencies": {
+    "nitroguard": "*",
+    "viem": "^2.0.0",
+    "@erc7824/nitrolite": "^0.1.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}

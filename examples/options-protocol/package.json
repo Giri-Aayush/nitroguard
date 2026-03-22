@@ -1,0 +1,19 @@
+{
+  "name": "nitroguard-options-protocol-example",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Typed options protocol example for NitroGuard",
+  "scripts": {
+    "start": "ts-node index.ts"
+  },
+  "dependencies": {
+    "nitroguard": "*",
+    "viem": "^2.0.0",
+    "@erc7824/nitrolite": "^0.1.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}

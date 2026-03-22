@@ -1,0 +1,34 @@
+# Source
+src/
+
+# Tests
+test/
+
+# Examples
+examples/
+
+# Documentation source
+docs/
+
+# Config files
+*.config.ts
+*.config.js
+tsconfig*.json
+vitest.config.ts
+tsup.config.ts
+
+# Development
+.github/
+.vscode/
+.claude/
+product.md
+.eslintrc*
+.prettierrc*
+
+# Build artifacts we don't want
+coverage/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
