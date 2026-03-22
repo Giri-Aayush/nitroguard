@@ -149,4 +149,148 @@ describe('MemoryAdapter', () => {
     const all = await adapter.loadAll(CHANNEL);
     expect(all).toHaveLength(1000);
   });
+
+  // ─── Version 0 handling ───────────────────────────────────────────────────
+
+  it('save() and loadLatest() works for version 0 (CHANOPEN)', async () => {
+    const s = makeState(CHANNEL, 0);
+    await adapter.save(CHANNEL, s);
+    const loaded = await adapter.loadLatest(CHANNEL);
+    expect(loaded?.version).toBe(0);
+  });
+
+  it('load(channelId, 0) returns version-0 state', async () => {
+    await adapter.save(CHANNEL, makeState(CHANNEL, 0));
+    const loaded = await adapter.load(CHANNEL, 0);
+    expect(loaded?.version).toBe(0);
+  });
+
+  it('version 0 is superseded by version 1 in loadLatest()', async () => {
+    await adapter.save(CHANNEL, makeState(CHANNEL, 0));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 1));
+    const latest = await adapter.loadLatest(CHANNEL);
+    expect(latest?.version).toBe(1);
+  });
+
+  // ─── Multi-channel isolation ──────────────────────────────────────────────
+
+  it('save to one channel does not appear in another', async () => {
+    const OTHER = '0xother';
+    await adapter.save(CHANNEL, makeState(CHANNEL, 1));
+    expect(await adapter.loadLatest(OTHER)).toBeNull();
+    expect(await adapter.loadAll(OTHER)).toHaveLength(0);
+  });
+
+  it('clear() removes channelId from listChannels()', async () => {
+    await adapter.save(CHANNEL, makeState(CHANNEL, 1));
+    await adapter.clear(CHANNEL);
+    const channels = await adapter.listChannels();
+    expect(channels).not.toContain(CHANNEL);
+  });
+
+  it('clear() on unknown channelId does not throw', async () => {
+    await expect(adapter.clear('0xnonexistent')).resolves.toBeUndefined();
+  });
+
+  it('listChannels() does not include channel after all states are overwritten by clear', async () => {
+    await adapter.save(CHANNEL, makeState(CHANNEL, 1));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 2));
+    await adapter.clear(CHANNEL);
+    expect(await adapter.listChannels()).not.toContain(CHANNEL);
+  });
+
+  // ─── Allocation data integrity ────────────────────────────────────────────
+
+  it('allocations are saved and loaded correctly (bigint preserved)', async () => {
+    const bigAmount = 999999999999999999999n;
+    const state: SignedState = {
+      ...makeState(CHANNEL, 1),
+      allocations: [
+        { token: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', clientBalance: bigAmount, clearNodeBalance: 0n },
+      ],
+    };
+    await adapter.save(CHANNEL, state);
+    const loaded = await adapter.loadLatest(CHANNEL);
+    expect(loaded?.allocations[0]?.clientBalance).toBe(bigAmount);
+  });
+
+  it('multi-asset allocations are preserved through save/load', async () => {
+    const state: SignedState = {
+      ...makeState(CHANNEL, 1),
+      allocations: [
+        { token: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', clientBalance: 100n, clearNodeBalance: 0n },
+        { token: '0x0000000000000000000000000000000000000000', clientBalance: 1000000000000000000n, clearNodeBalance: 0n },
+      ],
+    };
+    await adapter.save(CHANNEL, state);
+    const loaded = await adapter.loadLatest(CHANNEL);
+    expect(loaded?.allocations).toHaveLength(2);
+    expect(loaded?.allocations[1]?.clientBalance).toBe(1000000000000000000n);
+  });
+
+  // ─── loadAll ordering guarantee ────────────────────────────────────────────
+
+  it('loadAll() is sorted ascending even when saved out of order', async () => {
+    // Save in random order
+    await adapter.save(CHANNEL, makeState(CHANNEL, 5));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 1));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 3));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 2));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 4));
+
+    const all = await adapter.loadAll(CHANNEL);
+    expect(all.map(s => s.version)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('loadAll() including version 0 sorts correctly', async () => {
+    await adapter.save(CHANNEL, makeState(CHANNEL, 3));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 0));
+    await adapter.save(CHANNEL, makeState(CHANNEL, 1));
+
+    const all = await adapter.loadAll(CHANNEL);
+    expect(all.map(s => s.version)).toEqual([0, 1, 3]);
+  });
+
+  // ─── Save mutations don't affect stored state ─────────────────────────────
+
+  it('mutating the original state after save() does not corrupt stored state', async () => {
+    const state = makeState(CHANNEL, 1);
+    await adapter.save(CHANNEL, state);
+
+    // Mutate the original object
+    state.version = 999;
+    (state.allocations[0] as { clientBalance: bigint }).clientBalance = 0n;
+
+    const loaded = await adapter.loadLatest(CHANNEL);
+    expect(loaded?.version).toBe(1);
+    expect(loaded?.allocations[0]?.clientBalance).toBe(100n);
+  });
+
+  // ─── Concurrent async save ordering ──────────────────────────────────────
+
+  it('concurrent saves to the same channel all persist correctly', async () => {
+    const saves = Array.from({ length: 50 }, (_, i) =>
+      adapter.save(CHANNEL, makeState(CHANNEL, i + 1)),
+    );
+    await Promise.all(saves);
+    const all = await adapter.loadAll(CHANNEL);
+    expect(all).toHaveLength(50);
+    expect(all.map(s => s.version)).toEqual(Array.from({ length: 50 }, (_, i) => i + 1));
+  });
+
+  it('concurrent saves to different channels do not interfere', async () => {
+    const CH1 = '0xch1';
+    const CH2 = '0xch2';
+    const CH3 = '0xch3';
+
+    await Promise.all([
+      ...Array.from({ length: 10 }, (_, i) => adapter.save(CH1, makeState(CH1, i))),
+      ...Array.from({ length: 10 }, (_, i) => adapter.save(CH2, makeState(CH2, i))),
+      ...Array.from({ length: 10 }, (_, i) => adapter.save(CH3, makeState(CH3, i))),
+    ]);
+
+    expect((await adapter.loadAll(CH1))).toHaveLength(10);
+    expect((await adapter.loadAll(CH2))).toHaveLength(10);
+    expect((await adapter.loadAll(CH3))).toHaveLength(10);
+  });
 });

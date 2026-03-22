@@ -226,4 +226,204 @@ describe('ChannelFSM', () => {
     fsm._forceSet('VOID'); // already VOID
     expect(calls).toHaveLength(0);
   });
+
+  // ─── Complete invalid transition matrix (all 12 untested invalids) ─────────
+
+  it('VOID → VOID throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    expect(() => fsm.transition('VOID', 'noop')).toThrow(InvalidTransitionError);
+  });
+
+  it('INITIAL → INITIAL throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    expect(() => fsm.transition('INITIAL', 'open')).toThrow(InvalidTransitionError);
+  });
+
+  it('INITIAL → FINAL throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    expect(() => fsm.transition('FINAL', 'close')).toThrow(InvalidTransitionError);
+  });
+
+  it('ACTIVE → INITIAL throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    expect(() => fsm.transition('INITIAL', 'rollback')).toThrow(InvalidTransitionError);
+  });
+
+  it('ACTIVE → VOID throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    expect(() => fsm.transition('VOID', 'withdraw')).toThrow(InvalidTransitionError);
+  });
+
+  it('DISPUTE → DISPUTE throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    fsm.transition('DISPUTE', 'forceClose');
+    expect(() => fsm.transition('DISPUTE', 'forceClose')).toThrow(InvalidTransitionError);
+  });
+
+  it('DISPUTE → INITIAL throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    fsm.transition('DISPUTE', 'forceClose');
+    expect(() => fsm.transition('INITIAL', 'rollback')).toThrow(InvalidTransitionError);
+  });
+
+  it('DISPUTE → VOID throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    fsm.transition('DISPUTE', 'forceClose');
+    expect(() => fsm.transition('VOID', 'withdraw')).toThrow(InvalidTransitionError);
+  });
+
+  it('FINAL → INITIAL throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    fsm.transition('FINAL', 'close');
+    expect(() => fsm.transition('INITIAL', 'rollback')).toThrow(InvalidTransitionError);
+  });
+
+  it('FINAL → DISPUTE throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    fsm.transition('FINAL', 'close');
+    expect(() => fsm.transition('DISPUTE', 'forceClose')).toThrow(InvalidTransitionError);
+  });
+
+  it('FINAL → FINAL throws InvalidTransitionError', () => {
+    const fsm = new ChannelFSM();
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    fsm.transition('FINAL', 'close');
+    expect(() => fsm.transition('FINAL', 'close')).toThrow(InvalidTransitionError);
+  });
+
+  // ─── canTransition completeness ────────────────────────────────────────────
+
+  it('canTransition covers all 5 target states from VOID', () => {
+    const fsm = new ChannelFSM();
+    expect(fsm.canTransition('VOID')).toBe(false);
+    expect(fsm.canTransition('INITIAL')).toBe(true);
+    expect(fsm.canTransition('ACTIVE')).toBe(false);
+    expect(fsm.canTransition('DISPUTE')).toBe(false);
+    expect(fsm.canTransition('FINAL')).toBe(false);
+  });
+
+  it('canTransition covers all 5 target states from ACTIVE', () => {
+    const fsm = new ChannelFSM();
+    fsm._forceSet('ACTIVE');
+    expect(fsm.canTransition('VOID')).toBe(false);
+    expect(fsm.canTransition('INITIAL')).toBe(false);
+    expect(fsm.canTransition('ACTIVE')).toBe(true);
+    expect(fsm.canTransition('DISPUTE')).toBe(true);
+    expect(fsm.canTransition('FINAL')).toBe(true);
+  });
+
+  it('canTransition covers all 5 target states from DISPUTE', () => {
+    const fsm = new ChannelFSM();
+    fsm._forceSet('DISPUTE');
+    expect(fsm.canTransition('VOID')).toBe(false);
+    expect(fsm.canTransition('INITIAL')).toBe(false);
+    expect(fsm.canTransition('ACTIVE')).toBe(true);
+    expect(fsm.canTransition('DISPUTE')).toBe(false);
+    expect(fsm.canTransition('FINAL')).toBe(true);
+  });
+
+  // ─── FSM state is unchanged after invalid transition ───────────────────────
+
+  it('state is unchanged after failed transition', () => {
+    const fsm = new ChannelFSM();
+    try { fsm.transition('ACTIVE', 'bad'); } catch { /* expected */ }
+    expect(fsm.status).toBe('VOID');
+  });
+
+  it('can succeed after a failed attempt', () => {
+    const fsm = new ChannelFSM();
+    try { fsm.transition('ACTIVE', 'bad'); } catch { /* expected */ }
+    fsm.transition('INITIAL', 'open'); // should still work
+    expect(fsm.status).toBe('INITIAL');
+  });
+
+  // ─── Listener edge cases ──────────────────────────────────────────────────
+
+  it('10 listeners all fire on every transition', () => {
+    const fsm = new ChannelFSM();
+    const counts = Array.from({ length: 10 }, () => 0);
+    counts.forEach((_, i) => fsm.onStatusChange(() => { counts[i]++; }));
+
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+
+    expect(counts.every(c => c === 2)).toBe(true);
+  });
+
+  it('multiple listener throws do not prevent other listeners from firing', () => {
+    const fsm = new ChannelFSM();
+    const fired: number[] = [];
+    fsm.onStatusChange(() => { throw new Error('A'); });
+    fsm.onStatusChange(() => fired.push(1));
+    fsm.onStatusChange(() => { throw new Error('B'); });
+    fsm.onStatusChange(() => fired.push(2));
+
+    fsm.transition('INITIAL', 'open');
+    expect(fired).toEqual([1, 2]);
+  });
+
+  it('unsubscribing all listeners leaves FSM intact', () => {
+    const fsm = new ChannelFSM();
+    const unsub1 = fsm.onStatusChange(() => {});
+    const unsub2 = fsm.onStatusChange(() => {});
+    unsub1();
+    unsub2();
+
+    expect(() => fsm.transition('INITIAL', 'open')).not.toThrow();
+    expect(fsm.status).toBe('INITIAL');
+  });
+
+  it('full cycle VOID→INITIAL→ACTIVE→FINAL→VOID emits 4 events', () => {
+    const fsm = new ChannelFSM();
+    const events: Array<[string, string]> = [];
+    fsm.onStatusChange((to, from) => events.push([to, from]));
+
+    fsm.transition('INITIAL', 'open');
+    fsm.transition('ACTIVE', 'open');
+    fsm.transition('FINAL', 'close');
+    fsm.transition('VOID', 'withdraw');
+
+    expect(events).toEqual([
+      ['INITIAL', 'VOID'],
+      ['ACTIVE', 'INITIAL'],
+      ['FINAL', 'ACTIVE'],
+      ['VOID', 'FINAL'],
+    ]);
+  });
+
+  it('full dispute cycle ACTIVE→DISPUTE→ACTIVE→FINAL→VOID emits correctly', () => {
+    const fsm = new ChannelFSM();
+    fsm._forceSet('ACTIVE');
+    const events: Array<[string, string]> = [];
+    fsm.onStatusChange((to, from) => events.push([to, from]));
+
+    fsm.transition('DISPUTE', 'forceClose');
+    fsm.transition('ACTIVE', 'respond');
+    fsm.transition('FINAL', 'close');
+    fsm.transition('VOID', 'withdraw');
+
+    expect(events).toEqual([
+      ['DISPUTE', 'ACTIVE'],
+      ['ACTIVE', 'DISPUTE'],
+      ['FINAL', 'ACTIVE'],
+      ['VOID', 'FINAL'],
+    ]);
+  });
 });
