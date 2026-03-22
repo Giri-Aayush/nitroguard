@@ -1,16 +1,20 @@
+<p>
+  <img src="https://img.shields.io/badge/NitroGuard-React%20Guide-F5C518?style=flat-square&labelColor=000000" />
+</p>
+
 # React Guide
 
-NitroGuard ships React hooks out of the box. Import from `nitroguard/react`.
-
-## Installation
+NitroGuard ships React hooks in the `nitroguard/react` subpath. Import from there to keep your bundle clean — hooks and the core SDK tree-shake independently.
 
 ```bash
 npm install nitroguard viem @erc7824/nitrolite react react-dom
 ```
 
-## Provider Setup
+---
 
-Wrap your app with `NitroGuardProvider`:
+## Provider setup
+
+Wrap your app with `NitroGuardProvider`. The provider is SSR-safe — `createTransport` and `createPersistence` are factory functions called lazily inside `useEffect`, never during server-side render.
 
 ```tsx
 import { NitroGuardProvider } from 'nitroguard/react';
@@ -21,8 +25,8 @@ function App() {
     <NitroGuardProvider
       config={{
         clearnode: 'wss://clearnet.yellow.com/ws',
-        signer,        // EIP712Signer
-        chain: mainnet,
+        signer,
+        chain:  mainnet,
         rpcUrl: 'https://eth.llamarpc.com',
       }}
       createTransport={() => new MyTransport()}
@@ -34,21 +38,19 @@ function App() {
 }
 ```
 
-### Props
+**Props:**
 
-| Prop | Type | Description |
+| Prop | Type | |
 |---|---|---|
-| `config` | `OpenConfig` | Base channel config (clearnode URL, signer, chain, rpcUrl) |
-| `createTransport` | `() => ClearNodeTransport` | Factory for the WebSocket transport — called lazily on first `open()` |
-| `createPersistence` | `() => PersistenceAdapter` | (optional) Factory for the persistence adapter |
-
-The factory pattern (`createTransport`, `createPersistence`) is **SSR-safe** — these functions are only called inside `useEffect`, never during server-side render.
+| `config` | `OpenConfig` | Base config — `assets` and `persistence` are overridden per call |
+| `createTransport` | `() => ClearNodeTransport` | Factory — called once on first `open()` |
+| `createPersistence` | `() => PersistenceAdapter` | Optional factory |
 
 ---
 
 ## `useChannel()`
 
-Full lifecycle hook. Returns everything you need to open, use, and close a channel.
+Full lifecycle hook.
 
 ```tsx
 import { useChannel } from 'nitroguard/react';
@@ -57,134 +59,91 @@ function PaymentUI() {
   const { channel, status, version, isLoading, error, open, send, close } = useChannel();
 
   return (
-    <div>
-      <p>Status: {status}</p>
-      <p>Version: {version}</p>
+    <>
+      <p>Status: {status}  |  Version: {version}</p>
 
       {status === 'VOID' && (
-        <button
-          disabled={isLoading}
-          onClick={() => open([{ token: USDC, amount: 100n * 10n ** 6n }])}
-        >
-          {isLoading ? 'Opening...' : 'Open Channel'}
+        <button disabled={isLoading} onClick={() => open([{ token: USDC, amount: 100n * 10n ** 6n }])}>
+          {isLoading ? 'Opening…' : 'Open channel'}
         </button>
       )}
 
       {status === 'ACTIVE' && (
         <>
-          <button
-            disabled={isLoading}
-            onClick={() => send({ type: 'payment', amount: 10n * 10n ** 6n })}
-          >
-            Pay 10 USDC
-          </button>
-          <button onClick={close}>Close Channel</button>
+          <button onClick={() => send({ amount: 10n * 10n ** 6n })}>Pay 10 USDC</button>
+          <button onClick={close}>Close</button>
         </>
       )}
 
       {error && <p style={{ color: 'red' }}>{error.message}</p>}
-    </div>
+    </>
   );
 }
 ```
 
-### Returns
+**Returns:**
 
-| Field | Type | Description |
+| | Type | |
 |---|---|---|
-| `channel` | `Channel \| null` | The channel instance (null before open) |
-| `status` | `ChannelStatus` | Current FSM state: `'VOID' \| 'INITIAL' \| 'ACTIVE' \| 'DISPUTE' \| 'FINAL'` |
-| `version` | `number` | Current state version (0 before first send) |
-| `isLoading` | `boolean` | True during async operations (open, send, close) |
-| `error` | `Error \| null` | Last error, if any |
-| `open(assets)` | `(assets: Asset[]) => Promise<void>` | Open the channel with the given assets |
-| `send(payload)` | `(payload: unknown) => Promise<void>` | Send an off-chain state update |
-| `close()` | `() => Promise<void>` | Cooperatively close the channel |
+| `channel` | `Channel \| null` | `null` before `open()` |
+| `status` | `ChannelStatus` | `'VOID' \| 'INITIAL' \| 'ACTIVE' \| 'DISPUTE' \| 'FINAL'` |
+| `version` | `number` | Current version (0 before first send) |
+| `isLoading` | `boolean` | `true` during `open`, `send`, `close` |
+| `error` | `Error \| null` | Last error |
+| `open(assets)` | `fn` | Open with given assets |
+| `send(payload)` | `fn` | Off-chain state update |
+| `close()` | `fn` | Cooperative close |
 
 ---
 
 ## `useChannelBalance(channel)`
 
-Reactive balance hook. Updates on every `stateUpdate` event.
+Subscribes to `stateUpdate` and returns reactive balances.
 
 ```tsx
 import { useChannel, useChannelBalance } from 'nitroguard/react';
 
-function BalanceDisplay() {
+function Balance() {
   const { channel } = useChannel();
   const { myBalance, clearNodeBalance } = useChannelBalance(channel);
 
   return (
-    <div>
-      <p>My balance: {(myBalance / 10n ** 6n).toString()} USDC</p>
-      <p>ClearNode: {(clearNodeBalance / 10n ** 6n).toString()} USDC</p>
-    </div>
+    <p>
+      My balance: {(myBalance / 10n ** 6n).toString()} USDC
+    </p>
   );
 }
 ```
 
-### Returns
-
-| Field | Type | Description |
-|---|---|---|
-| `myBalance` | `bigint` | Your allocation in the channel |
-| `clearNodeBalance` | `bigint` | ClearNode's allocation |
-
-Returns `{ myBalance: 0n, clearNodeBalance: 0n }` when `channel` is null.
+Returns `{ myBalance: 0n, clearNodeBalance: 0n }` when `channel` is `null`.
 
 ---
 
 ## `useChannelStatus(channel)`
 
-Lightweight alternative to `useChannel` — only subscribes to `statusChange` events. Use when you only need the status and want to avoid re-renders from version changes.
+Lightweight — only subscribes to `statusChange` events. Use this when you only need the status and want to avoid re-renders triggered by version increments.
 
 ```tsx
 import { useChannelStatus } from 'nitroguard/react';
 
 function StatusBadge({ channel }) {
   const status = useChannelStatus(channel);
-
-  const colors = {
-    VOID: 'gray',
-    INITIAL: 'yellow',
-    ACTIVE: 'green',
-    DISPUTE: 'red',
-    FINAL: 'blue',
-  };
-
-  return <span style={{ color: colors[status] }}>{status}</span>;
+  return <span data-status={status}>{status}</span>;
 }
 ```
-
-### Returns
-
-`ChannelStatus` — `'VOID' | 'INITIAL' | 'ACTIVE' | 'DISPUTE' | 'FINAL'`
 
 ---
 
 ## `useAllChannels()`
 
-Lists all channel IDs from persistence. Useful for building a channel picker.
+Lists all `channelId`s from persistence. Useful for building a channel picker.
 
 ```tsx
 import { useAllChannels } from 'nitroguard/react';
 
 function ChannelList() {
   const channelIds = useAllChannels();
-
-  if (channelIds.length === 0) {
-    return <p>No saved channels.</p>;
-  }
-
-  return (
-    <ul>
-      {channelIds.map(id => (
-        <li key={id}>
-          <code>{id.slice(0, 10)}...</code>
-        </li>
-      ))}
-    </ul>
-  );
+  return <ul>{channelIds.map(id => <li key={id}>{id.slice(0, 12)}…</li>)}</ul>;
 }
 ```
 
@@ -192,9 +151,9 @@ Requires `createPersistence` to be set on the provider.
 
 ---
 
-## Typed Protocols with React
+## Typed protocols in React
 
-Pass a protocol to the provider config, and `send()` from `useChannel()` will be typed:
+Pass a protocol in the provider config and `send()` from `useChannel()` will be typed:
 
 ```tsx
 import { NitroGuardProvider } from 'nitroguard/react';
@@ -202,51 +161,31 @@ import { defineProtocol } from 'nitroguard';
 import { z } from 'zod';
 
 const PaymentProtocol = defineProtocol({
-  name: 'payment',
-  version: 1,
-  schema: z.object({
-    to: z.string(),
-    amount: z.bigint(),
-  }),
+  name: 'payment', version: 1,
+  schema: z.object({ to: z.string(), amount: z.bigint() }),
 });
 
-function App() {
-  return (
-    <NitroGuardProvider
-      config={{ ..., protocol: PaymentProtocol }}
-      createTransport={() => new MyTransport()}
-    >
-      <PaymentUI />
-    </NitroGuardProvider>
-  );
-}
-
-function PaymentUI() {
-  const { send } = useChannel();
-
-  // TypeScript knows send() takes { to: string; amount: bigint }
-  return <button onClick={() => send({ to: '0xBob...', amount: 10n })}>Pay</button>;
-}
+<NitroGuardProvider config={{ ...config, protocol: PaymentProtocol }} createTransport={...}>
+  <App />
+</NitroGuardProvider>
 ```
 
 ---
 
-## Next.js Setup
+## Next.js App Router
 
-NitroGuard's React hooks are client-only (they use `useEffect`, event listeners, and browser APIs). In Next.js App Router, mark any component using NitroGuard hooks with `'use client'`:
+Hooks use `useEffect`, event listeners, and browser APIs — mark any component using NitroGuard hooks as a client component:
 
 ```tsx
+// components/PaymentUI.tsx
 'use client';
 
 import { useChannel } from 'nitroguard/react';
 
-export function PaymentButton() {
-  const { send, status } = useChannel();
-  // ...
-}
+export function PaymentUI() { ... }
 ```
 
-For the provider, create a client component wrapper:
+Create a client component wrapper for the provider:
 
 ```tsx
 // app/providers.tsx
@@ -270,15 +209,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 // app/layout.tsx
 import { Providers } from './providers';
 
-export default function RootLayout({ children }) {
-  return (
-    <html>
-      <body>
-        <Providers>{children}</Providers>
-      </body>
-    </html>
-  );
+export default function Layout({ children }) {
+  return <html><body><Providers>{children}</Providers></body></html>;
 }
 ```
 
-The provider itself is SSR-safe because `createTransport` and `createPersistence` are factories called only inside `useEffect`.
+The provider is SSR-safe — the transport factory is called only client-side, so no hydration errors.

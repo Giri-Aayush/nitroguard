@@ -1,161 +1,122 @@
+<p>
+  <img src="https://img.shields.io/badge/NitroGuard-Dispute%20Guide-F5C518?style=flat-square&labelColor=000000" />
+</p>
+
 # Dispute Guide
 
-NitroGuard protects your funds automatically. This guide explains the two layers of protection: the `DisputeWatcher` (responds to stale challenges) and the `ClearNodeMonitor` (detects silence and triggers force-close).
-
-## The Threat Model
-
-State channels have two attack vectors:
-
-1. **Stale challenge**: ClearNode (or your counterparty) submits an old state on-chain, hoping you don't notice and respond before the challenge window closes.
-2. **ClearNode silence**: ClearNode stops responding — either it's down, or it's deliberately withholding co-signatures to freeze your funds.
-
-NitroGuard addresses both automatically.
+NitroGuard protects funds at two levels. Both are opt-in and composable.
 
 ---
 
-## Layer 1: DisputeWatcher
+## The threat model
 
-`DisputeWatcher` monitors on-chain events. When it sees a `ChallengeRegistered` event for one of your channels, it checks whether the challenged state is lower than your latest co-signed state. If so, it calls `checkpoint()` automatically to override the stale challenge.
+State channels have two failure modes:
 
-### Enable with `autoDispute: true`
+**Stale challenge** — ClearNode (or any counterparty) submits an old state on-chain. If you don't respond with a higher-version state before the challenge window closes, the stale state wins.
 
-```typescript
-const channel = await NitroGuard.open({
-  clearnode: 'wss://...',
-  signer,
-  chain,
-  rpcUrl,
-  assets,
-  persistence,
-  custodyClient,   // required for on-chain ops
-  autoDispute: true,
-  onChallengeDetected: (channelId) => {
-    console.log(`Challenge detected on ${channelId}`);
-  },
-  onFundsReclaimed: (channelId, amounts) => {
-    console.log(`Funds recovered on ${channelId}:`, amounts);
-  },
-});
-```
-
-### Requirements
-
-- `persistence` — must be provided (DisputeWatcher needs the latest co-signed state)
-- `custodyClient` — required for on-chain `checkpoint()` calls
-- `autoDispute: true` — opt-in
-
-### What happens
-
-```
-ChallengeRegistered (stale state v3) detected
-  ↓
-DisputeWatcher checks: we have state v7 in persistence
-  ↓
-DisputeWatcher calls checkpoint(v7) on-chain
-  ↓
-On-chain logic: v7 > v3, challenge overridden
-  ↓
-onChallengeDetected callback fires
-  ↓
-Channel returns to ACTIVE (or closes to FINAL if it was the final state)
-```
+**ClearNode silence** — ClearNode stops responding. Without intervention, your funds are frozen until you manually submit a challenge. With NitroGuard, this happens automatically.
 
 ---
 
-## Layer 2: ClearNodeMonitor
+## Layer 1 — DisputeWatcher
 
-`ClearNodeMonitor` tracks the last time ClearNode responded. If it goes silent for longer than `clearnodeSilenceTimeout` milliseconds, it calls `forceClose()` automatically.
+`DisputeWatcher` watches on-chain `ChallengeRegistered` events. When a challenge is detected for one of your channels, it compares the challenged version against your latest persisted state. If yours is higher, it calls `checkpoint()` on-chain immediately.
 
-### Enable with `clearnodeSilenceTimeout`
+**Enable with `autoDispute: true`:**
 
-```typescript
+```ts
 const channel = await NitroGuard.open({
-  clearnode: 'wss://...',
-  signer,
-  chain,
-  rpcUrl,
-  assets,
+  clearnode, signer, chain, rpcUrl, assets,
   persistence,
   custodyClient,
-  clearnodeSilenceTimeout: 30_000, // forceClose after 30 seconds of silence
+  autoDispute: true,
+  onChallengeDetected: (id)       => console.log(`Challenge on ${id}`),
+  onFundsReclaimed:    (id, amts) => console.log('Recovered', amts),
 });
 ```
 
-Recommended values:
-- **Production**: `60_000` (1 minute) — avoids false positives from brief network hiccups
-- **Testing**: `5_000` (5 seconds) — fast response in test environments
-- **High-stakes**: `15_000` (15 seconds) — balance between speed and false positives
+**Requirements:**
+- `persistence` — must be configured (DisputeWatcher reads your latest co-signed state from it)
+- `custodyClient` — required to call `checkpoint()` on-chain
 
-### What happens
+**What happens:**
 
 ```
-ClearNode last responded 30s ago (timeout reached)
-  ↓
-ClearNodeMonitor calls channel.forceClose()
-  ↓
-Latest co-signed state submitted on-chain as a challenge
-  ↓
-Channel.status → 'DISPUTE'
-  ↓
-Challenge period expires (minutes on testnet, ~1hr+ on mainnet)
-  ↓
-channel.withdraw() called automatically
-  ↓
-Channel.status → 'VOID', funds returned
+ChallengeRegistered (version 3) detected on-chain
+  → DisputeWatcher loads persisted state (version 10)
+  → checkpoint(version 10) submitted
+  → version 10 > 3: challenge overridden
+  → onChallengeDetected fires
+  → channel remains ACTIVE
 ```
 
 ---
 
-## Manual Force Close
+## Layer 2 — ClearNodeMonitor
 
-You can always call `forceClose()` yourself without waiting for the monitor:
+`ClearNodeMonitor` tracks the timestamp of the last message received from ClearNode. If no messages arrive within `clearnodeSilenceTimeout` ms, it calls `channel.forceClose()` automatically.
 
-```typescript
-// ClearNode stopped responding — protect your funds immediately
-if (channel.status === 'ACTIVE') {
-  try {
-    await channel.forceClose();
-    console.log('Challenge submitted. Status:', channel.status); // 'DISPUTE'
-  } catch (err) {
-    if (err instanceof NoPersistenceError) {
-      console.error('No saved state — cannot force close safely');
-    }
+**Enable with `clearnodeSilenceTimeout`:**
+
+```ts
+const channel = await NitroGuard.open({
+  ...config,
+  clearnodeSilenceTimeout: 60_000, // 60 seconds
+});
+```
+
+**Recommended values:**
+
+| Use case | Value |
+|---|---|
+| Production | `60_000` — avoids false positives from network hiccups |
+| High-stakes | `15_000` — faster recovery, slightly more sensitive |
+| Testing | `5_000` — fast feedback in development |
+
+**What happens:**
+
+```
+No message from ClearNode for 60s
+  → channel.forceClose() called automatically
+  → latest co-signed state submitted on-chain as a challenge
+  → channel.status → 'DISPUTE'
+  → challenge window expires
+  → withdraw() called automatically
+  → channel.status → 'VOID', funds returned
+```
+
+---
+
+## Manual force close
+
+You can always call `forceClose()` yourself:
+
+```ts
+import { NoPersistenceError } from 'nitroguard';
+
+try {
+  await channel.forceClose();
+  console.log(channel.status); // 'DISPUTE' or 'FINAL'
+} catch (err) {
+  if (err instanceof NoPersistenceError) {
+    // No saved state to submit — configure persistence to avoid this
   }
 }
 ```
 
-### `forceClose()` requires persistence
-
-`forceClose()` loads the latest co-signed state from persistence and submits it on-chain. Without persistence, there's no state to submit, so it throws `NoPersistenceError`.
-
-Always configure persistence in production:
-
-```typescript
-// Browser
-const channel = await NitroGuard.open({
-  ...,
-  // persistence defaults to IndexedDBAdapter in browser environments
-});
-
-// Node.js
-import { LevelDBAdapter } from 'nitroguard';
-const persistence = await LevelDBAdapter.create('./channel-db');
-const channel = await NitroGuard.open({ ..., persistence });
-```
+`forceClose()` requires at least one co-signed state in persistence. Without it, there's nothing to submit on-chain.
 
 ---
 
-## Full Protection Setup
+## Recommended production setup
 
-Here's the recommended production configuration:
-
-```typescript
+```ts
 import { NitroGuard, LevelDBAdapter, CustodyClient } from 'nitroguard';
-import { createWalletClient, createPublicClient, http } from 'viem';
+import { createPublicClient, createWalletClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
-const publicClient = createPublicClient({ chain: mainnet, transport: http(RPC_URL) });
-const walletClient = createWalletClient({ account, chain: mainnet, transport: http(RPC_URL) });
+const publicClient  = createPublicClient({ chain: mainnet, transport: http(RPC_URL) });
+const walletClient  = createWalletClient({ account, chain: mainnet, transport: http(RPC_URL) });
 
 const custodyClient = new CustodyClient({
   publicClient,
@@ -173,25 +134,24 @@ const channel = await NitroGuard.open({
   assets: [{ token: USDC, amount: 100n * 10n ** 6n }],
   persistence,
   custodyClient,
-  autoDispute: true,
+  autoDispute:             true,
   clearnodeSilenceTimeout: 60_000,
-  onChallengeDetected: (id) => alertOps(`Challenge on channel ${id}`),
-  onFundsReclaimed: (id, amounts) => logRecovery(id, amounts),
+  onChallengeDetected: (id)       => alertOps(`Challenge detected: ${id}`),
+  onFundsReclaimed:    (id, amts) => logRecovery(id, amts),
 });
 ```
 
-This setup gives you:
-- Every co-signed state saved to LevelDB
-- Automatic response to any stale challenge within one block
-- Automatic force-close if ClearNode goes silent for 60 seconds
-- Alerting hooks for your monitoring system
+This gives you:
+- Every co-signed state persisted to LevelDB
+- Automatic challenge response within one block
+- Automatic force-close if ClearNode goes silent for 60s
 
 ---
 
-## Error Reference
+## Error reference
 
 | Error | When |
 |---|---|
-| `NoPersistenceError` | `forceClose()` called with no persistence adapter configured |
-| `CoSignatureTimeoutError` | ClearNode didn't respond to a state update within the timeout |
+| `NoPersistenceError` | `forceClose()` called with no persistence configured |
+| `CoSignatureTimeoutError` | ClearNode didn't respond to a state update |
 | `ClearNodeUnreachableError` | WebSocket connection to ClearNode failed |

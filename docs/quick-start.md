@@ -1,12 +1,20 @@
+<p>
+  <img src="https://img.shields.io/badge/NitroGuard-Quick%20Start-F5C518?style=flat-square&labelColor=000000" />
+</p>
+
 # Quick Start
 
-Get your first state channel running in 5 minutes.
+Zero to a running state channel in 5 minutes.
+
+---
 
 ## Prerequisites
 
 - Node.js 18+
-- A wallet with some ETH (for gas) and USDC on Sepolia testnet
-- A ClearNode URL (Yellow Network provides a public sandbox)
+- A wallet with ETH (gas) and USDC on Sepolia testnet
+- A ClearNode URL — Yellow Network provides `wss://clearnet-sandbox.yellow.com/ws` for testing
+
+---
 
 ## 1. Install
 
@@ -14,115 +22,114 @@ Get your first state channel running in 5 minutes.
 npm install nitroguard viem @erc7824/nitrolite
 ```
 
+---
+
 ## 2. Create a signer
 
-NitroGuard works with any EIP-712 signer. The simplest is a viem `WalletClient`:
+NitroGuard accepts any object with `address`, `signTypedData`, and `signMessage`. A viem `WalletClient` works directly:
 
-```typescript
-import { createWalletClient, createPublicClient, http } from 'viem';
+```ts
+import { createWalletClient, http } from 'viem';
 import { sepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
 
-const walletClient = createWalletClient({
+const wallet = createWalletClient({
   account,
   chain: sepolia,
   transport: http(process.env.RPC_URL),
 });
 
 const signer = {
-  address: account.address,
-  signTypedData: (params) => walletClient.signTypedData(params),
-  signMessage: (params) => walletClient.signMessage(params),
+  address:       account.address,
+  signTypedData: (p) => wallet.signTypedData(p),
+  signMessage:   (p) => wallet.signMessage(p),
 };
 ```
 
+---
+
 ## 3. Open a channel
 
-```typescript
+```ts
 import { NitroGuard } from 'nitroguard';
 import { parseUnits } from 'viem';
 import { sepolia } from 'viem/chains';
 
-const USDC_SEPOLIA = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
+const USDC = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'; // Sepolia testnet
 
 const channel = await NitroGuard.open({
   clearnode: 'wss://clearnet-sandbox.yellow.com/ws',
   signer,
-  chain: sepolia,
+  chain:  sepolia,
   rpcUrl: process.env.RPC_URL,
-  assets: [{ token: USDC_SEPOLIA, amount: parseUnits('10', 6) }], // 10 USDC
+  assets: [{ token: USDC, amount: parseUnits('10', 6) }],
 });
 
-console.log('Channel open:', channel.id);
-console.log('Status:', channel.status); // 'ACTIVE'
+console.log(channel.status); // 'ACTIVE'
 ```
 
-`NitroGuard.open()` connects to ClearNode, co-signs the opening state, and returns once the channel is in `ACTIVE` state.
+`NitroGuard.open()` handles the full handshake: connects to ClearNode, deposits assets, constructs the initial state, and waits for co-signatures from both parties. It resolves when the channel is `ACTIVE`.
+
+---
 
 ## 4. Send off-chain updates
 
-```typescript
-// These are instant and free — no gas, no block confirmation
+```ts
 await channel.send({ type: 'payment', to: '0xBob...', amount: 1_000_000n }); // 1 USDC
 await channel.send({ type: 'payment', to: '0xBob...', amount: 500_000n });   // 0.5 USDC
 
-console.log('Version:', channel.version); // 2
+console.log(channel.version); // 2
 ```
 
-Each `send()` produces a co-signed state update. Both parties agree on the new state.
+Each `send()` is instant and free — no gas, no block confirmation. Both parties co-sign each state update.
+
+---
 
 ## 5. Close cooperatively
 
-```typescript
+```ts
 const result = await channel.close();
 
-console.log('Settled. tx:', result.txHash);
-console.log('Status:', channel.status); // 'FINAL'
+console.log(result.txHash);  // on-chain settlement transaction
+console.log(channel.status); // 'FINAL'
 ```
 
-`close()` asks ClearNode to co-sign the final state and submits it on-chain. Your funds are released.
+---
 
-## 6. Handle disconnection (optional)
+## 6. Add persistence (recommended for production)
 
-Add persistence and automatic dispute handling so your funds are always safe:
+Without persistence, `forceClose()` has nothing to submit if ClearNode disappears.
 
-```typescript
-import { NitroGuard, LevelDBAdapter, CustodyClient } from 'nitroguard';
+```ts
+import { NitroGuard, LevelDBAdapter } from 'nitroguard';
 
 const persistence = await LevelDBAdapter.create('./channel-db');
 
 const channel = await NitroGuard.open({
-  clearnode: 'wss://clearnet-sandbox.yellow.com/ws',
-  signer,
-  chain: sepolia,
-  rpcUrl: process.env.RPC_URL,
-  assets: [{ token: USDC_SEPOLIA, amount: parseUnits('10', 6) }],
+  ...config,
   persistence,
   custodyClient,
-  autoDispute: true,            // auto-respond to stale challenges
-  clearnodeSilenceTimeout: 30_000, // force-close if ClearNode goes silent
+  autoDispute: true,
 });
 ```
 
-If the process restarts, restore with:
+After a restart:
 
-```typescript
+```ts
 const channel = await NitroGuard.restore(channelId, {
-  clearnode: '...',
-  signer,
-  chain: sepolia,
-  rpcUrl: '...',
-  persistence,
+  clearnode, signer, chain, rpcUrl, persistence,
 });
-
-console.log('Restored at version:', channel.version);
+// channel.version === exactly where you left off
 ```
 
-## Next Steps
+---
 
-- [State Machine](state-machine.md) — understand all valid transitions
-- [Dispute Guide](dispute-guide.md) — how fund protection works automatically
-- [Protocol Schemas](protocol-schemas.md) — add typed payloads with Zod
-- [React Guide](react-guide.md) — React hooks for your frontend
+## Next
+
+- [State Machine](state-machine.md) — all states, transitions, and error handling
+- [Dispute Guide](dispute-guide.md) — how fund protection works
+- [Persistence Guide](persistence-guide.md) — adapter selection and custom adapters
+- [Protocol Schemas](protocol-schemas.md) — typed payloads with Zod
+- [React Guide](react-guide.md) — hooks and Next.js setup

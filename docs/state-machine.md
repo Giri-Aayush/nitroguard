@@ -1,148 +1,172 @@
+<p>
+  <img src="https://img.shields.io/badge/NitroGuard-State%20Machine-F5C518?style=flat-square&labelColor=000000" />
+</p>
+
 # State Machine
 
-NitroGuard enforces a strict finite state machine (FSM) on every channel. Calling a method in the wrong state throws `InvalidTransitionError` immediately — no silent failures.
+NitroGuard enforces a deterministic FSM over every channel. Every method is a valid transition. Every invalid call throws `InvalidTransitionError` immediately — no silent failures, no unexpected on-chain reverts.
+
+---
 
 ## States
 
 | State | Meaning |
 |---|---|
-| `VOID` | Channel doesn't exist yet (or has been fully settled and withdrawn) |
-| `INITIAL` | Channel opened locally; waiting for ClearNode co-signature |
-| `ACTIVE` | Both parties have signed; off-chain updates are flowing |
-| `DISPUTE` | A challenge has been submitted on-chain; waiting for resolution |
-| `FINAL` | Channel finalized — funds can be withdrawn |
+| `VOID` | Channel does not exist (or has been fully withdrawn) |
+| `INITIAL` | Channel opened locally; waiting for ClearNode co-signature on the funding state |
+| `ACTIVE` | Both parties co-signed; off-chain updates flowing |
+| `DISPUTE` | Challenge submitted on-chain; timer running |
+| `FINAL` | Channel finalized; funds are withdrawable |
 
-## Transitions
+---
+
+## Diagram
 
 ```
-VOID ──open()──► INITIAL ──(ClearNode co-signs)──► ACTIVE
-                                                    │  │  │
-                                              send()│  │  checkpoint()
-                                               (loop)│  │  (ACTIVE→ACTIVE)
-                                                    │  │
-                                        close() ◄───┘  └───► DISPUTE
-                                          │                     │
-                                          ▼                     │ (auto-respond or
-                                        FINAL ◄─────────────────┘  forceClose completes)
-                                          │
-                                    withdraw()
-                                          │
-                                          ▼
-                                        VOID
+VOID ──open()──▶ INITIAL ──▶ ACTIVE
+                               │
+                          send()  ──▶ ACTIVE  (loops, version++)
+                          checkpoint()  ──▶ ACTIVE
+                               │
+                    close() ◀──┤──▶ DISPUTE
+                               │       │
+                             FINAL ◀───┘  (auto-respond or window expires)
+                               │
+                          withdraw()
+                               │
+                             VOID
 ```
 
-## Methods and Valid States
+---
 
-### `NitroGuard.open(config)`
-- **From**: `VOID`
-- **To**: `ACTIVE` (after ClearNode co-signs)
-- **Throws**: `ClearNodeUnreachableError` if WS connection fails
+## Methods
 
-### `channel.send(payload)`
-- **From**: `ACTIVE`
-- **To**: `ACTIVE` (version incremented)
-- **Throws**: `InvalidTransitionError` if not ACTIVE, `CoSignatureTimeoutError` if ClearNode doesn't respond
+### `NitroGuard.open(config)` — `VOID → ACTIVE`
 
-```typescript
-// Version increments with each send
-expect(channel.version).toBe(0); // after open
+Connects to ClearNode, deposits assets, and co-signs the funding state. Returns once the channel is `ACTIVE`.
+
+Throws `ClearNodeUnreachableError` if the WebSocket connection fails.
+
+---
+
+### `channel.send(payload)` — `ACTIVE → ACTIVE`
+
+Sends an off-chain state update. Version increments by one on each confirmed send.
+
+```ts
 await channel.send({ amount: 10n });
-expect(channel.version).toBe(1);
+console.log(channel.version); // 1
+
 await channel.send({ amount: 5n });
-expect(channel.version).toBe(2);
+console.log(channel.version); // 2
 ```
 
-### `channel.close()`
-- **From**: `ACTIVE`
-- **To**: `FINAL`
-- **Throws**: `InvalidTransitionError` if not ACTIVE, `CoSignatureTimeoutError` if ClearNode doesn't co-sign the close
+Throws `InvalidTransitionError` if not `ACTIVE`.  
+Throws `CoSignatureTimeoutError` if ClearNode doesn't respond within the configured timeout (default 5s).  
+Rolls back the version counter automatically on timeout.
 
-```typescript
+---
+
+### `channel.close()` — `ACTIVE → FINAL`
+
+Requests ClearNode to co-sign the final state and submits the mutual close on-chain.
+
+```ts
 const result = await channel.close();
-// result.txHash — the on-chain settlement transaction
-// result.version — the final version number
+// result.txHash  — settlement transaction
+// result.version — final version number
 ```
 
-### `channel.forceClose()`
-- **From**: `ACTIVE`
-- **To**: `DISPUTE` → `FINAL` (after challenge period)
-- **Throws**: `InvalidTransitionError` if not ACTIVE, `NoPersistenceError` if no saved state
+Throws `CoSignatureTimeoutError` if ClearNode doesn't respond. In that case, call `forceClose()`.
 
-Use `forceClose()` when ClearNode is unresponsive. It submits the latest co-signed state on-chain as a challenge, then waits for the challenge period to expire before withdrawing.
+---
 
-```typescript
-// Transitions immediately to DISPUTE while waiting for challenge window
+### `channel.forceClose()` — `ACTIVE → DISPUTE → FINAL`
+
+Submits the latest co-signed state as an on-chain challenge. Waits for the challenge period to expire, then withdraws.
+
+```ts
 await channel.forceClose();
-// Channel is now FINAL (after challenge period — can be minutes to hours on mainnet)
+// channel transitions: ACTIVE → DISPUTE → FINAL
 ```
 
-### `channel.checkpoint()`
-- **From**: `ACTIVE`
-- **To**: `ACTIVE` (state unchanged, but anchored on-chain)
-- **Throws**: `InvalidTransitionError` if not ACTIVE
+Throws `NoPersistenceError` if no persisted state exists (nothing to submit on-chain).  
+Requires `custodyClient` in the open config.
 
-Checkpointing submits the current state on-chain without closing. If someone later submits a stale challenge, your checkpoint defeats it.
+---
 
-```typescript
+### `channel.checkpoint()` — `ACTIVE → ACTIVE`
+
+Anchors the current version on-chain. Any future challenge must use a version higher than the checkpoint — stale challenges are rejected.
+
+```ts
 const result = await channel.checkpoint();
-// result.txHash — the checkpoint transaction
-// result.version — the version that was anchored
+// result.txHash   — checkpoint transaction
+// result.version  — the version that was anchored
 ```
 
-### `channel.withdraw()`
-- **From**: `FINAL`
-- **To**: `VOID`
-- **Throws**: `InvalidTransitionError` if not FINAL
+Call this periodically on high-value channels to shrink the attack surface.
 
-```typescript
+---
+
+### `channel.withdraw()` — `FINAL → VOID`
+
+Releases funds to your wallet after the channel reaches `FINAL` state.
+
+```ts
 await channel.withdraw();
-// Funds transferred to your wallet
+// channel.status === 'VOID'
 ```
 
-### `NitroGuard.restore(channelId, config)`
-- **From**: persisted `ACTIVE` state
-- **To**: `ACTIVE`
-- **Throws**: `ChannelNotFoundError` if channelId not in persistence
+---
 
-## Invalid Transition Handling
+### `NitroGuard.restore(channelId, config)` — persisted `ACTIVE → ACTIVE`
 
-```typescript
+Resumes a channel after restart. Reconnects to ClearNode and verifies version consistency.
+
+```ts
+const channel = await NitroGuard.restore(channelId, {
+  clearnode, signer, chain, rpcUrl, persistence,
+});
+console.log(channel.version); // picks up exactly where you left off
+```
+
+Throws `ChannelNotFoundError` if no state is found in persistence for the given `channelId`.
+
+---
+
+## Invalid transition example
+
+```ts
 import { InvalidTransitionError } from 'nitroguard';
 
 const channel = await NitroGuard.open({ ... });
 // channel.status === 'ACTIVE'
 
 try {
-  await channel.withdraw(); // Wrong state!
+  await channel.withdraw(); // wrong state
 } catch (err) {
   if (err instanceof InvalidTransitionError) {
     console.log(err.message);
     // "Cannot call withdraw() in state ACTIVE. Expected: FINAL"
-    console.log(err.from);    // 'ACTIVE'
-    console.log(err.method);  // 'withdraw'
+    console.log(err.from);   // 'ACTIVE'
+    console.log(err.method); // 'withdraw'
   }
 }
 ```
 
-## Persistence and State Reconstruction
+---
 
-With a persistence adapter, channel state survives process restarts:
+## Transition table
 
-```typescript
-import { NitroGuard, LevelDBAdapter } from 'nitroguard';
-
-const persistence = await LevelDBAdapter.create('./db');
-
-// First run
-const ch = await NitroGuard.open({ ..., persistence });
-await ch.send({ note: 'hello' }); // version = 1
-const id = ch.id;
-
-// Process restarts...
-
-// Second run — restore to version 1
-const restored = await NitroGuard.restore(id, { ..., persistence });
-console.log(restored.version); // 1
-```
-
-NitroGuard stores every co-signed state. If you're ever in `DISPUTE`, it uses the highest-version co-signed state to maximize recovery.
+| From | Method | To | On-chain |
+|---|---|---|---|
+| `VOID` | `open()` | `ACTIVE` | deposit + create |
+| `ACTIVE` | `send()` | `ACTIVE` | — |
+| `ACTIVE` | `checkpoint()` | `ACTIVE` | checkpoint |
+| `ACTIVE` | `close()` | `FINAL` | mutual close |
+| `ACTIVE` | `forceClose()` | `DISPUTE` | challenge |
+| `DISPUTE` | (auto-respond) | `ACTIVE` | respond |
+| `DISPUTE` | (window expires) | `FINAL` | — |
+| `FINAL` | `withdraw()` | `VOID` | withdraw |
+| persisted `ACTIVE` | `restore()` | `ACTIVE` | — |
