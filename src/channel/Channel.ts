@@ -27,6 +27,7 @@ import type {
   WithdrawResult,
   StateIntent,
   Allocation,
+  ChannelMetrics,
 } from './types.js';
 
 type AnyListener = (...args: unknown[]) => void;
@@ -72,6 +73,11 @@ export class Channel {
   // ─── forceClose mutex ─────────────────────────────────────────────────────
   private _forceCloseInProgress = false;
   private _forceClosePromise: Promise<ForceCloseResult> | null = null;
+
+  // ─── Metrics ──────────────────────────────────────────────────────────────
+  private _messagesSent = 0;
+  private _latencySamples: number[] = [];
+  private _disputeCount = 0;
 
   constructor(params: ChannelConstructorParams) {
     this.id = params.channelId;
@@ -131,6 +137,7 @@ export class Channel {
 
     const timeoutMs = options?.timeoutMs ?? this._defaultSendTimeout;
     const v = this._versions.next();
+    const sendStart = Date.now();
 
     const partialState: Omit<SignedState, 'sigClient' | 'sigClearNode'> = {
       channelId: this.id,
@@ -158,6 +165,8 @@ export class Channel {
       throw err;
     }
 
+    this._latencySamples.push(Date.now() - sendStart);
+    this._messagesSent++;
     this._versions.confirm(v);
     await this._persistence.save(this.id, signedState);
     this._emit('stateUpdate', v, signedState);
@@ -260,6 +269,7 @@ export class Channel {
       );
     }
 
+    this._disputeCount++;
     this._fsm.transition('DISPUTE', 'forceClose');
     this._emit('challengeDetected', this.id);
 
@@ -353,6 +363,29 @@ export class Channel {
    */
   async getLatestPersistedState(): Promise<SignedState | null> {
     return this._persistence.loadLatest(this.id);
+  }
+
+  /**
+   * Returns a snapshot of runtime statistics for this channel.
+   *
+   * - `messagesSent` — total successfully co-signed state updates
+   * - `avgLatencyMs` — average round-trip time from send() to co-signature
+   * - `uptimeMs`     — milliseconds since the channel was created
+   * - `disputeCount` — number of forceClose / dispute events triggered
+   */
+  metrics(): ChannelMetrics {
+    const avgLatencyMs = this._latencySamples.length === 0
+      ? 0
+      : Math.round(
+          this._latencySamples.reduce((sum, v) => sum + v, 0) / this._latencySamples.length,
+        );
+
+    return {
+      messagesSent: this._messagesSent,
+      avgLatencyMs,
+      uptimeMs: Date.now() - this.createdAt.getTime(),
+      disputeCount: this._disputeCount,
+    };
   }
 
   // ─── Event API ────────────────────────────────────────────────────────────
