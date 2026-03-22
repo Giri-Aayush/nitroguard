@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/license-MIT-F5C518?style=flat-square&labelColor=000000" alt="MIT" />
 </p>
 
-<h1 align="center">NitroGuard</h1>
+<h1 align="center">nitroguard</h1>
 <p align="center">State channel lifecycle SDK for <a href="https://yellow.com">Yellow Network</a> / ERC-7824</p>
 
 ---
