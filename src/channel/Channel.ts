@@ -427,7 +427,9 @@ export interface ChannelConstructorParams {
 function encodePayload(payload: unknown): `0x${string}` {
   if (payload === undefined || payload === null) return '0x';
   try {
-    const json = JSON.stringify(payload);
+    const json = JSON.stringify(payload, (_key, value) =>
+      typeof value === 'bigint' ? value.toString() : value,
+    );
     const hex = Buffer.from(json, 'utf8').toString('hex');
     return `0x${hex}`;
   } catch {

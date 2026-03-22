@@ -5,6 +5,7 @@ import { VersionManager } from './VersionManager.js';
 import { MemoryAdapter } from '../persistence/MemoryAdapter.js';
 import { ClearNodeMonitor } from '../dispute/ClearNodeMonitor.js';
 import { DisputeWatcher } from '../dispute/DisputeWatcher.js';
+import { TypedChannel } from '../protocol/TypedChannel.js';
 import {
   InvalidConfigError,
   ChannelNotFoundError,
@@ -16,6 +17,7 @@ import type {
   AssetAllocation,
 } from './types.js';
 import type { ClearNodeTransport } from './transport.js';
+import type { Protocol } from '../protocol/types.js';
 
 /**
  * Factory for creating and restoring channels.
@@ -40,7 +42,21 @@ export class ChannelFactory {
    * 8. Wire ClearNodeMonitor and DisputeWatcher (if custodyClient provided)
    * 9. Return Channel instance
    */
-  static async open(config: OpenConfig, transport: ClearNodeTransport): Promise<Channel> {
+  // Overload: when protocol is provided, returns TypedChannel<T>
+  static async open<T>(
+    config: OpenConfig & { protocol: Protocol<T> },
+    transport: ClearNodeTransport,
+  ): Promise<TypedChannel<T>>;
+  // Overload: without protocol, returns plain Channel
+  static async open(
+    config: OpenConfig,
+    transport: ClearNodeTransport,
+  ): Promise<Channel>;
+  // Implementation
+  static async open(
+    config: OpenConfig & { protocol?: Protocol<unknown> },
+    transport: ClearNodeTransport,
+  ): Promise<Channel | TypedChannel<unknown>> {
     validateOpenConfig(config);
 
     const persistence = config.persistence ?? new MemoryAdapter();
@@ -77,7 +93,7 @@ export class ChannelFactory {
       versionManager: versions,
       persistence,
       transport,
-      custodyClient: config.custodyClient,
+      ...(config.custodyClient ? { custodyClient: config.custodyClient } : {}),
     });
 
     // Wire up callbacks
@@ -170,6 +186,11 @@ export class ChannelFactory {
       await watcher.start();
     }
 
+    // Phase 3: wrap in TypedChannel if protocol provided
+    if (config.protocol) {
+      return new TypedChannel(channel, config.protocol);
+    }
+
     return channel;
   }
 
@@ -224,7 +245,7 @@ export class ChannelFactory {
       versionManager: versions,
       persistence,
       transport,
-      custodyClient: config.custodyClient,
+      ...(config.custodyClient ? { custodyClient: config.custodyClient } : {}),
     });
 
     if (config.onError) {

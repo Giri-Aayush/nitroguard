@@ -198,3 +198,33 @@ export class InvalidConfigError extends NitroGuardError {
     this.name = 'InvalidConfigError';
   }
 }
+
+// ─── Protocol ─────────────────────────────────────────────────────────────────
+
+export class ProtocolValidationError extends NitroGuardError {
+  readonly protocolId: string;
+
+  constructor(protocolId: string, issue: string) {
+    super(
+      `Protocol "${protocolId}" payload validation failed: ${issue}`,
+      'PROTOCOL_VALIDATION',
+    );
+    this.name = 'ProtocolValidationError';
+    this.protocolId = protocolId;
+  }
+}
+
+export class ProtocolTransitionError extends NitroGuardError {
+  readonly protocolId: string;
+  readonly guardName: string;
+
+  constructor(protocolId: string, guardName: string) {
+    super(
+      `Protocol "${protocolId}" rejected transition — guard "${guardName}" returned false`,
+      'PROTOCOL_TRANSITION',
+    );
+    this.name = 'ProtocolTransitionError';
+    this.protocolId = protocolId;
+    this.guardName = guardName;
+  }
+}

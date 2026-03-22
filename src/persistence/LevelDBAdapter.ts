@@ -75,7 +75,7 @@ export class LevelDBAdapter implements PersistenceAdapter {
   static async create(dbPath = './nitroguard-state'): Promise<LevelDBAdapter> {
     let LevelModule: { Level: new (path: string, opts: { valueEncoding: string }) => LevelInstance };
     try {
-      LevelModule = await import('level') as typeof LevelModule;
+      LevelModule = await import('level') as unknown as typeof LevelModule;
     } catch {
       throw new Error(
         "LevelDBAdapter requires the 'level' package. " +

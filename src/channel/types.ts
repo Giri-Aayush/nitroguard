@@ -184,6 +184,11 @@ export interface OpenConfig {
   /** Phase 2: inject a custody client (use MockCustodyClient in tests) */
   custodyClient?: import('../dispute/types.js').ICustodyClient;
 
+  // Protocol (Phase 3)
+  /** Optional typed protocol. When set, ChannelFactory.open() returns TypedChannel<T>. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protocol?: import('../protocol/types.js').Protocol<any>;
+
   // Callbacks
   onStatusChange?: (status: ChannelStatus, prev: ChannelStatus) => void;
   onStateUpdate?: (version: number, state: SignedState) => void;

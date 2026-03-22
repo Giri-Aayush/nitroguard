@@ -82,9 +82,17 @@ export {
   ChallengeMissedError,
   VersionDesyncError,
   InvalidConfigError,
+  ProtocolValidationError,
+  ProtocolTransitionError,
 } from './errors/index.js';
 
 export type { ClearNodeTransport } from './channel/transport.js';
+
+// ─── Protocol layer (Phase 3) ─────────────────────────────────────────────────
+
+export { defineProtocol } from './protocol/defineProtocol.js';
+export { TypedChannel } from './protocol/TypedChannel.js';
+export type { Protocol, ProtocolDefinition, TransitionGuard } from './protocol/types.js';
 
 // ─── NitroGuard namespace ─────────────────────────────────────────────────────
 
