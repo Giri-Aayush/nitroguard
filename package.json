@@ -36,7 +36,9 @@
     "test:integration": "vitest run test/integration",
     "test:e2e": "vitest run test/e2e",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test --ext .ts,.tsx"
+    "lint": "eslint src test --ext .ts,.tsx",
+    "coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
     "@erc7824/nitrolite": ">=0.4.0",
@@ -52,16 +54,23 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/ws": "^8.5.0",
     "@erc7824/nitrolite": "^0.4.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.28",
+    "@types/ws": "^8.5.0",
     "fake-indexeddb": "^6.0.0",
-    "typescript": "^5.4.0",
+    "jsdom": "^27.0.1",
+    "level": "^10.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
     "viem": "^2.0.0",
     "vitest": "^2.0.0",
     "ws": "^8.17.0",
     "zod": "^3.22.0"
-  },
-  "dependencies": {}
+  }
 }
