@@ -15,6 +15,7 @@ import type {
   ForceCloseResult,
   CheckpointResult,
   WithdrawResult,
+  ChannelMetrics,
 } from '../channel/types.js';
 import {
   ProtocolValidationError,
@@ -117,6 +118,10 @@ export class TypedChannel<T> {
 
   getLatestPersistedState(): Promise<SignedState | null> {
     return this._channel.getLatestPersistedState();
+  }
+
+  metrics(): ChannelMetrics {
+    return this._channel.metrics();
   }
 
   on<E extends ChannelEvent>(

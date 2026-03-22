@@ -66,6 +66,7 @@ export type {
   ForceCloseResult,
   CheckpointResult,
   WithdrawResult,
+  ChannelMetrics,
 } from './channel/types.js';
 
 export {

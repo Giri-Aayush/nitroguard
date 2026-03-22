@@ -22,4 +22,14 @@ export default defineConfig([
     treeshake: true,
     outDir: 'dist',
   },
+  // Built-in protocols subpath export (requires zod)
+  {
+    entry: { 'protocols/index': 'src/protocol/builtins.ts' },
+    format: ['esm'],
+    dts: true,
+    sourcemap: true,
+    external: ['viem', '@erc7824/nitrolite', 'zod'],
+    treeshake: true,
+    outDir: 'dist',
+  },
 ]);

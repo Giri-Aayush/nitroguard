@@ -158,6 +158,19 @@ export interface WithdrawResult {
   amounts: Amount[];
 }
 
+// ─── Channel Metrics ─────────────────────────────────────────────────────────
+
+export interface ChannelMetrics {
+  /** Total number of successfully co-signed state updates via send() */
+  messagesSent: number;
+  /** Average round-trip latency from send() to co-signature, in ms. 0 if no sends yet. */
+  avgLatencyMs: number;
+  /** Time since channel was created, in ms */
+  uptimeMs: number;
+  /** Number of times a dispute / forceClose was triggered on this channel */
+  disputeCount: number;
+}
+
 // ─── Open Config ─────────────────────────────────────────────────────────────
 
 export interface OpenConfig {
