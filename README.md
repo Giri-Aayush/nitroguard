@@ -91,6 +91,8 @@ await channel.forceClose()        // unilateral — challenges on-chain
 await channel.checkpoint()        // anchors current version on-chain
 await channel.withdraw()          // release funds after FINAL
 
+channel.metrics()  // { messagesSent, avgLatencyMs, uptimeMs, disputeCount }
+
 channel.on('statusChange', (to, from) => {})
 channel.on('stateUpdate',  (version, state) => {})
 channel.on('error',        (err) => {})
@@ -134,9 +136,38 @@ Both require a `persistence` adapter (to have a state to submit) and `custodyCli
 
 ---
 
-## Typed protocols
+## Built-in protocols
 
-Define your payload schema once; `send()` becomes fully type-checked at compile time and validated at runtime.
+`nitroguard/protocols` ships `PaymentProtocol` and `SwapProtocol` ready to use — no schema writing required.
+
+```bash
+npm install zod  # required for protocols
+```
+
+```ts
+import { PaymentProtocol, SwapProtocol } from 'nitroguard/protocols';
+
+// Payments
+const ch = await NitroGuard.open({ ...config, protocol: PaymentProtocol });
+await ch.send({ type: 'payment', to: '0xBob...', amount: 10_000_000n, token: USDC });
+
+// Swaps
+const ch = await NitroGuard.open({ ...config, protocol: SwapProtocol });
+await ch.send({
+  type: 'offer',
+  offerToken: USDC,  offerAmount: 100_000_000n,
+  wantToken:  WETH,  wantAmount:  50_000_000_000_000_000n,
+  expiry: Date.now() + 60_000,
+});
+```
+
+→ [Protocol Schemas guide](docs/protocol-schemas.md)
+
+---
+
+## Custom protocols
+
+Define your own payload schema once; `send()` becomes fully type-checked at compile time and validated at runtime.
 
 ```ts
 import { defineProtocol } from 'nitroguard';

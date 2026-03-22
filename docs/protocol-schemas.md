@@ -8,6 +8,56 @@
 
 ---
 
+## Built-in protocols
+
+For the two most common use cases, NitroGuard ships ready-made schemas — no Zod boilerplate required.
+
+```bash
+npm install zod  # peer dependency required for protocols
+```
+
+### `PaymentProtocol`
+
+```ts
+import { PaymentProtocol } from 'nitroguard/protocols';
+
+const channel = await NitroGuard.open({ ...config, protocol: PaymentProtocol });
+
+await channel.send({
+  type:   'payment',
+  to:     '0xBob...',          // recipient address
+  amount: 10_000_000n,         // in token's smallest unit
+  token:  USDC,                // ERC-20 address
+  memo:   'coffee',            // optional, max 256 chars
+});
+```
+
+Enforces: `amount > 0`, valid hex addresses, memo ≤ 256 chars.
+
+### `SwapProtocol`
+
+```ts
+import { SwapProtocol } from 'nitroguard/protocols';
+
+const channel = await NitroGuard.open({ ...config, protocol: SwapProtocol });
+
+// Alice proposes
+await channel.send({
+  type:        'offer',
+  offerToken:  USDC,  offerAmount: 100_000_000n,
+  wantToken:   WETH,  wantAmount:  50_000_000_000_000_000n,
+  expiry:      Date.now() + 60_000,
+});
+
+// Bob accepts (or cancels)
+await channel.send({ ...prevOffer, type: 'accept' });
+await channel.send({ ...prevOffer, type: 'cancel' });
+```
+
+Enforces: both amounts > 0, offer and want tokens must differ, `accept` must arrive before `expiry`.
+
+---
+
 ## Without a protocol
 
 ```ts
