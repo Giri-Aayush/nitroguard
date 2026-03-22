@@ -20,7 +20,7 @@ export class MemoryAdapter implements PersistenceAdapter {
       channel = new Map();
       this.store.set(channelId, channel);
     }
-    channel.set(state.version, { ...state });
+    channel.set(state.version, { ...state, allocations: state.allocations.map(a => ({ ...a })) });
   }
 
   async loadLatest(channelId: string): Promise<SignedState | null> {
