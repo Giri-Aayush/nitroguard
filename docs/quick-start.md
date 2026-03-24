@@ -54,12 +54,18 @@ const signer = {
 
 NitroGuard communicates with ClearNode through a `ClearNodeTransport`. You bring your own — this keeps NitroGuard decoupled from any specific WebSocket library and lets you swap in a mock during tests.
 
-For production, use Yellow Network's official `yellow-ts` client — check their documentation for the exact import.
+**For production**, use Yellow Network's official transport package:
 
-For local development and testing, you can write a minimal auto-approving stub that satisfies the interface:
+```bash
+npm install yellow-ts
+```
+
+Check the [yellow-ts documentation](https://github.com/stevenzeiler/yellow-ts) for the exact adapter import and configuration.
+
+**For local development and testing**, you can write a minimal auto-approving stub that satisfies the interface:
 
 ```ts
-import type { ClearNodeTransport } from 'nitroguard';
+import type { ClearNodeTransport, SignedState } from 'nitroguard';
 
 const CLEARNODE_ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as `0x${string}`;
 
@@ -78,14 +84,16 @@ const transport: ClearNodeTransport = {
 The full `ClearNodeTransport` interface (from `nitroguard`):
 
 ```ts
+import type { SignedState } from 'nitroguard';
+
 interface ClearNodeTransport {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   readonly isConnected: boolean;
   readonly clearNodeAddress: `0x${string}`;
-  proposeState(channelId: string, state: ..., timeoutMs: number): Promise<SignedState>;
-  openChannel(channelId: string, state: ..., timeoutMs?: number): Promise<SignedState>;
-  closeChannel(channelId: string, state: ..., timeoutMs?: number): Promise<SignedState>;
+  proposeState(channelId: string, state: SignedState, timeoutMs: number): Promise<SignedState>;
+  openChannel(channelId: string, state: SignedState, timeoutMs?: number): Promise<SignedState>;
+  closeChannel(channelId: string, state: SignedState, timeoutMs?: number): Promise<SignedState>;
   onMessage(handler: (msg: unknown) => void): () => void;
 }
 ```
@@ -103,6 +111,8 @@ const USDC = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'; // Sepolia testnet
 
 const channel = await NitroGuard.open(
   {
+    // The ClearNode URL is embedded in signed state so both parties reference the same endpoint.
+    // The transport (from step 3) handles the actual WebSocket connection.
     clearnode: 'wss://clearnet-sandbox.yellow.com/ws',
     signer,
     chain:  sepolia,
@@ -122,8 +132,10 @@ console.log(channel.status); // 'ACTIVE'
 ## 5. Send off-chain updates
 
 ```ts
-await channel.send({ type: 'payment', to: '0xBob...', amount: 1_000_000n }); // 1 USDC
-await channel.send({ type: 'payment', to: '0xBob...', amount: 500_000n });   // 0.5 USDC
+// Without a protocol, send() accepts any object — no runtime validation.
+// See the Protocol Schemas guide to add type safety and validation.
+await channel.send({ type: 'payment', to: recipientAddress, amount: 1_000_000n }); // 1 USDC
+await channel.send({ type: 'payment', to: recipientAddress, amount: 500_000n });   // 0.5 USDC
 
 console.log(channel.version); // 2
 
@@ -153,22 +165,41 @@ console.log(channel.status);            // 'FINAL'
 
 By default, NitroGuard uses an in-memory store (`MemoryAdapter`). `forceClose()` works fine during a session, but state is lost on process restart — so you can't recover after a crash. Use a durable adapter to survive restarts.
 
+```bash
+npm install level  # required for LevelDBAdapter
+```
+
 ```ts
-import { NitroGuard, LevelDBAdapter } from 'nitroguard';
+import { NitroGuard, LevelDBAdapter, CustodyClient } from 'nitroguard';
+import { createWalletClient, createPublicClient, http } from 'viem';
+import { sepolia } from 'viem/chains';
 
 const persistence = await LevelDBAdapter.create('./channel-db');
+
+// CustodyClient is required for autoDispute and forceClose on-chain settlement
+const custodyClient = new CustodyClient({
+  rpcUrl:         process.env.RPC_URL,
+  chain:          sepolia,
+  custodyAddress: '0xYourCustodyContractAddress' as `0x${string}`,
+  walletClient:   createWalletClient({ account, chain: sepolia, transport: http(process.env.RPC_URL) }),
+});
 
 const channel = await NitroGuard.open(
   { ...config, persistence, custodyClient, autoDispute: true },
   transport,
 );
+
+// Save channel.id somewhere durable (localStorage, DB) so you can restore after a restart
+console.log('Save this:', channel.id);
 ```
 
 After a restart:
 
 ```ts
+const savedChannelId = '0x...'; // channel.id you saved before the restart
+
 const channel = await NitroGuard.restore(
-  channelId,
+  savedChannelId,
   { clearnode, signer, chain, rpcUrl, persistence },
   transport,
 );
