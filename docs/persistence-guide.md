@@ -159,18 +159,40 @@ import { Redis } from 'ioredis';
 export class RedisAdapter implements PersistenceAdapter {
   constructor(private redis: Redis, private prefix = 'ng:') {}
 
+  private serialize(state: SignedState) {
+    return JSON.stringify(state, (_, v) => typeof v === 'bigint' ? { __bigint: v.toString() } : v);
+  }
+  private deserialize(raw: string): SignedState {
+    return JSON.parse(raw, (_, v) => v?.__bigint !== undefined ? BigInt(v.__bigint) : v);
+  }
+
   async save(channelId: string, state: SignedState) {
-    await this.redis.set(
-      `${this.prefix}${channelId}`,
-      JSON.stringify(state, (_, v) => typeof v === 'bigint' ? { __bigint: v.toString() } : v),
-    );
-    await this.redis.sadd(`${this.prefix}channels`, channelId);
+    const pipe = this.redis.pipeline();
+    // store latest under main key
+    pipe.set(`${this.prefix}${channelId}`, this.serialize(state));
+    // store per-version for load(version) and loadAll()
+    pipe.set(`${this.prefix}${channelId}:v${state.version}`, this.serialize(state));
+    pipe.sadd(`${this.prefix}channels`, channelId);
+    await pipe.exec();
   }
 
   async loadLatest(channelId: string): Promise<SignedState | null> {
     const raw = await this.redis.get(`${this.prefix}${channelId}`);
-    if (!raw) return null;
-    return JSON.parse(raw, (_, v) => v?.__bigint !== undefined ? BigInt(v.__bigint) : v);
+    return raw ? this.deserialize(raw) : null;
+  }
+
+  async load(channelId: string, version: number): Promise<SignedState | null> {
+    const raw = await this.redis.get(`${this.prefix}${channelId}:v${version}`);
+    return raw ? this.deserialize(raw) : null;
+  }
+
+  async loadAll(channelId: string): Promise<SignedState[]> {
+    const keys = await this.redis.keys(`${this.prefix}${channelId}:v*`);
+    if (!keys.length) return [];
+    const raws = await this.redis.mget(...keys);
+    return (raws.filter(Boolean) as string[])
+      .map(r => this.deserialize(r))
+      .sort((a, b) => a.version - b.version);
   }
 
   async listChannels() {
@@ -178,7 +200,8 @@ export class RedisAdapter implements PersistenceAdapter {
   }
 
   async clear(channelId: string) {
-    await this.redis.del(`${this.prefix}${channelId}`);
+    const keys = await this.redis.keys(`${this.prefix}${channelId}*`);
+    if (keys.length) await this.redis.del(...keys);
     await this.redis.srem(`${this.prefix}channels`, channelId);
   }
 }

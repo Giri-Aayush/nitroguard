@@ -234,13 +234,28 @@ await channel.send({ type: 'open', strikePrice: 3000n, expiry: Date.now() + 86_4
 ```tsx
 // npm install react react-dom
 import { NitroGuardProvider, useChannel, useChannelBalance } from 'nitroguard/react';
+import type { ClearNodeTransport } from 'nitroguard';
+import { mainnet } from 'viem/chains';
+
+const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as `0x${string}`;
+
+// Minimal dev stub — use yellow-ts in production (npm install yellow-ts)
+const createTransport = (): ClearNodeTransport => ({
+  isConnected: true,
+  clearNodeAddress: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+  connect: async () => {}, disconnect: async () => {},
+  openChannel:  async (_id, s) => ({ ...s, sigClearNode: '0x', savedAt: Date.now() }),
+  closeChannel: async (_id, s) => ({ ...s, sigClearNode: '0x', savedAt: Date.now() }),
+  proposeState: async (_id, s) => ({ ...s, sigClearNode: '0x', savedAt: Date.now() }),
+  onMessage: (_h) => () => {},
+});
 
 // Provider is SSR-safe — transport is initialized lazily inside useEffect
 function App() {
   return (
     <NitroGuardProvider
-      config={{ clearnode: 'wss://...', signer, chain: mainnet, rpcUrl }}
-      createTransport={() => new MyTransport()}
+      config={{ clearnode: 'wss://clearnet.yellow.com/ws', signer, chain: mainnet, rpcUrl }}
+      createTransport={createTransport}
     >
       <PaymentUI />
     </NitroGuardProvider>

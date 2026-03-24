@@ -70,6 +70,8 @@ Full lifecycle hook.
 ```tsx
 import { useChannel } from 'nitroguard/react';
 
+const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as `0x${string}`; // mainnet USDC
+
 function PaymentUI() {
   const { channel, status, version, isLoading, error, open, send, close } = useChannel();
 
@@ -120,7 +122,7 @@ import { useChannel, useChannelBalance } from 'nitroguard/react';
 
 function Balance() {
   const { channel } = useChannel();
-  const { myBalance, clearNodeBalance } = useChannelBalance(channel);
+  const { myBalance, theirBalance } = useChannelBalance(channel);
 
   return (
     <p>
@@ -130,7 +132,7 @@ function Balance() {
 }
 ```
 
-Returns `{ myBalance: 0n, clearNodeBalance: 0n }` when `channel` is `null`.
+Returns `{ myBalance: 0n, theirBalance: 0n }` when `channel` is `null`.
 
 ---
 
@@ -157,7 +159,9 @@ Lists all `channelId`s from persistence. Useful for building a channel picker.
 import { useAllChannels } from 'nitroguard/react';
 
 function ChannelList() {
-  const channelIds = useAllChannels();
+  const { channelIds, isLoading, error } = useAllChannels();
+  if (isLoading) return <p>Loading…</p>;
+  if (error)     return <p>Error: {error.message}</p>;
   return <ul>{channelIds.map(id => <li key={id}>{id.slice(0, 12)}…</li>)}</ul>;
 }
 ```

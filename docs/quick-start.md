@@ -132,10 +132,12 @@ console.log(channel.status); // 'ACTIVE'
 ## 5. Send off-chain updates
 
 ```ts
+const RECIPIENT = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as `0x${string}`; // replace with real recipient
+
 // Without a protocol, send() accepts any object — no runtime validation.
 // See the Protocol Schemas guide to add type safety and validation.
-await channel.send({ type: 'payment', to: recipientAddress, amount: 1_000_000n }); // 1 USDC
-await channel.send({ type: 'payment', to: recipientAddress, amount: 500_000n });   // 0.5 USDC
+await channel.send({ type: 'payment', to: RECIPIENT, amount: 1_000_000n }); // 1 USDC
+await channel.send({ type: 'payment', to: RECIPIENT, amount: 500_000n });   // 0.5 USDC
 
 console.log(channel.version); // 2
 
@@ -171,36 +173,57 @@ npm install level  # required for LevelDBAdapter
 
 ```ts
 import { NitroGuard, LevelDBAdapter, CustodyClient } from 'nitroguard';
-import { createWalletClient, createPublicClient, http } from 'viem';
+import { createWalletClient, http, parseUnits } from 'viem';
 import { sepolia } from 'viem/chains';
+
+// re-use the same constants defined in steps 2-4
+const USDC          = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' as `0x${string}`; // Sepolia testnet
+const CLEARNODE_URL = 'wss://clearnet-sandbox.yellow.com/ws';
+const RPC_URL       = process.env.RPC_URL as string;
 
 const persistence = await LevelDBAdapter.create('./channel-db');
 
 // CustodyClient is required for autoDispute and forceClose on-chain settlement
 const custodyClient = new CustodyClient({
-  rpcUrl:         process.env.RPC_URL,
+  rpcUrl:         RPC_URL,
   chain:          sepolia,
   custodyAddress: '0xYourCustodyContractAddress' as `0x${string}`,
-  walletClient:   createWalletClient({ account, chain: sepolia, transport: http(process.env.RPC_URL) }),
+  walletClient:   createWalletClient({ account, chain: sepolia, transport: http(RPC_URL) }),
 });
 
 const channel = await NitroGuard.open(
-  { ...config, persistence, custodyClient, autoDispute: true },
-  transport,
+  {
+    clearnode: CLEARNODE_URL,
+    signer,                    // from step 2
+    chain:     sepolia,
+    rpcUrl:    RPC_URL,
+    assets:    [{ token: USDC, amount: parseUnits('10', 6) }],
+    persistence,
+    custodyClient,
+    autoDispute: true,
+  },
+  transport,                   // from step 3
 );
 
 // Save channel.id somewhere durable (localStorage, DB) so you can restore after a restart
 console.log('Save this:', channel.id);
 ```
 
-After a restart:
+After a restart (re-create `signer` and `transport` exactly as in steps 2–3, then):
 
 ```ts
+import { NitroGuard, LevelDBAdapter } from 'nitroguard';
+import { sepolia } from 'viem/chains';
+
+// same signer and transport from steps 2-3 must be re-created
+const CLEARNODE_URL  = 'wss://clearnet-sandbox.yellow.com/ws';
+const RPC_URL        = process.env.RPC_URL as string;
+const persistence    = await LevelDBAdapter.create('./channel-db');
 const savedChannelId = '0x...'; // channel.id you saved before the restart
 
 const channel = await NitroGuard.restore(
   savedChannelId,
-  { clearnode, signer, chain, rpcUrl, persistence },
+  { clearnode: CLEARNODE_URL, signer, chain: sepolia, rpcUrl: RPC_URL, persistence },
   transport,
 );
 // channel.version === exactly where you left off
