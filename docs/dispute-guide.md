@@ -62,10 +62,10 @@ ChallengeRegistered (version 3) detected on-chain
 **Enable with `clearnodeSilenceTimeout`:**
 
 ```ts
-const channel = await NitroGuard.open({
-  ...config,
-  clearnodeSilenceTimeout: 60_000, // 60 seconds
-});
+const channel = await NitroGuard.open(
+  { ...config, clearnodeSilenceTimeout: 60_000 },
+  transport,
+);
 ```
 
 **Recommended values:**

@@ -54,30 +54,40 @@ const signer = {
 
 NitroGuard communicates with ClearNode through a `ClearNodeTransport`. You bring your own — this keeps NitroGuard decoupled from any specific WebSocket library and lets you swap in a mock during tests.
 
-For production, use the transport from `yellow-ts`:
+For production, use Yellow Network's official `yellow-ts` client — check their documentation for the exact import.
 
-```ts
-import { ClearNodeTransport } from 'yellow-ts'; // Yellow Network's official client
-
-const transport = new ClearNodeTransport('wss://clearnet-sandbox.yellow.com/ws', signer);
-```
-
-For tests, NitroGuard ships a `MockClearNode` transport — see the [testing examples](../test/integration/helpers/MockClearNode.ts).
-
-The `ClearNodeTransport` interface you need to implement (if rolling your own):
+For local development and testing, you can write a minimal auto-approving stub that satisfies the interface:
 
 ```ts
 import type { ClearNodeTransport } from 'nitroguard';
 
-// Must implement:
-// connect(): Promise<void>
-// disconnect(): Promise<void>
-// readonly isConnected: boolean
-// readonly clearNodeAddress: `0x${string}`
-// proposeState(channelId, state, timeoutMs): Promise<SignedState>
-// openChannel(channelId, state, timeoutMs?): Promise<SignedState>
-// closeChannel(channelId, state, timeoutMs?): Promise<SignedState>
-// onMessage(handler): () => void
+const CLEARNODE_ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as `0x${string}`;
+
+const transport: ClearNodeTransport = {
+  isConnected: true,
+  clearNodeAddress: CLEARNODE_ADDRESS,
+  connect:    async () => {},
+  disconnect: async () => {},
+  openChannel:  async (_id, state) => ({ ...state, sigClearNode: '0x' as `0x${string}`, savedAt: Date.now() }),
+  closeChannel: async (_id, state) => ({ ...state, sigClearNode: '0x' as `0x${string}`, savedAt: Date.now() }),
+  proposeState: async (_id, state) => ({ ...state, sigClearNode: '0x' as `0x${string}`, savedAt: Date.now() }),
+  onMessage: (_handler) => () => {},
+};
+```
+
+The full `ClearNodeTransport` interface (from `nitroguard`):
+
+```ts
+interface ClearNodeTransport {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  readonly isConnected: boolean;
+  readonly clearNodeAddress: `0x${string}`;
+  proposeState(channelId: string, state: ..., timeoutMs: number): Promise<SignedState>;
+  openChannel(channelId: string, state: ..., timeoutMs?: number): Promise<SignedState>;
+  closeChannel(channelId: string, state: ..., timeoutMs?: number): Promise<SignedState>;
+  onMessage(handler: (msg: unknown) => void): () => void;
+}
 ```
 
 ---

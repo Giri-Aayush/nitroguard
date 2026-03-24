@@ -41,8 +41,10 @@ const signer  = {
   signMessage:   (p) => wallet.signMessage(p),
 };
 
-// transport connects NitroGuard to ClearNode — use yellow-ts in production
-// or MockClearNode in tests (see docs/quick-start.md)
+// transport connects NitroGuard to ClearNode over WebSocket.
+// Use yellow-ts in production. For tests, implement ClearNodeTransport
+// with a simple mock or use MockClearNode from the source repo's test/helpers.
+// See docs/quick-start.md for details.
 const transport = new MyClearNodeTransport('wss://clearnet.yellow.com/ws', signer);
 
 const channel = await NitroGuard.open(
@@ -72,7 +74,7 @@ await channel.close();
 
 Opens a channel and returns it in `ACTIVE` state.
 
-`transport` is a `ClearNodeTransport` — the bridge between NitroGuard and ClearNode's WebSocket API. Use `yellow-ts` for production or `MockClearNode` (included in the package) for tests. See [Quick Start](docs/quick-start.md#3-create-a-transport) for details.
+`transport` is a `ClearNodeTransport` — the bridge between NitroGuard and ClearNode's WebSocket API. Use `yellow-ts` for production. See [Quick Start](docs/quick-start.md#3-create-a-transport) for the interface and a minimal test stub.
 
 | Option | Type | Required | |
 |---|---|:---:|---|
@@ -166,12 +168,12 @@ npm install zod  # required for protocols
 import { PaymentProtocol, SwapProtocol } from 'nitroguard/protocols';
 
 // Payments
-const ch = await NitroGuard.open({ ...config, protocol: PaymentProtocol });
+const ch = await NitroGuard.open({ ...config, protocol: PaymentProtocol }, transport);
 await ch.send({ type: 'payment', to: '0xBob...', amount: 10_000_000n, token: USDC });
 
 // Swaps
-const ch = await NitroGuard.open({ ...config, protocol: SwapProtocol });
-await ch.send({
+const ch2 = await NitroGuard.open({ ...config, protocol: SwapProtocol }, transport);
+await ch2.send({
   type: 'offer',
   offerToken: USDC,  offerAmount: 100_000_000n,
   wantToken:  WETH,  wantAmount:  50_000_000_000_000_000n,
@@ -206,7 +208,7 @@ const OptionsProtocol = defineProtocol({
   },
 });
 
-const channel = await NitroGuard.open({ ...config, protocol: OptionsProtocol });
+const channel = await NitroGuard.open({ ...config, protocol: OptionsProtocol }, transport);
 await channel.send({ type: 'open', strikePrice: 3000n, expiry: Date.now() + 86_400_000, premium: 50n });
 // TypeScript error if fields are missing or wrong type
 ```

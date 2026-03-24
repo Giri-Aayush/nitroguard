@@ -21,7 +21,7 @@ npm install zod  # peer dependency required for protocols
 ```ts
 import { PaymentProtocol } from 'nitroguard/protocols';
 
-const channel = await NitroGuard.open({ ...config, protocol: PaymentProtocol });
+const channel = await NitroGuard.open({ ...config, protocol: PaymentProtocol }, transport);
 
 await channel.send({
   type:   'payment',
@@ -39,7 +39,7 @@ Enforces: `amount > 0`, valid hex addresses, memo ≤ 256 chars.
 ```ts
 import { SwapProtocol } from 'nitroguard/protocols';
 
-const channel = await NitroGuard.open({ ...config, protocol: SwapProtocol });
+const channel = await NitroGuard.open({ ...config, protocol: SwapProtocol }, transport);
 
 // Alice proposes
 await channel.send({

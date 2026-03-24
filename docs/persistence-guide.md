@@ -39,7 +39,7 @@ import { LevelDBAdapter } from 'nitroguard';
 
 const persistence = await LevelDBAdapter.create('./channel-db');
 
-const channel = await NitroGuard.open({ ...config, persistence });
+const channel = await NitroGuard.open({ ...config, persistence }, transport);
 
 // Close before process exit
 process.on('SIGINT', async () => {
