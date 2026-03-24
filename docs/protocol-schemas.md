@@ -141,8 +141,8 @@ try {
   await channel.send({ amount: 5_000n * 10n ** 6n, cumulativeTotal: 5_000n * 10n ** 6n });
 } catch (err) {
   if (err instanceof ProtocolTransitionError) {
-    console.log(err.guard);   // 'maxPerTx'
-    console.log(err.message); // "Transition guard 'maxPerTx' failed for protocol trade@1"
+    console.log(err.guardName); // 'maxPerTx'
+    console.log(err.message);  // "Protocol \"trade@1\" rejected transition — guard \"maxPerTx\" returned false"
   }
 }
 ```

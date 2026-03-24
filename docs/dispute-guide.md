@@ -102,12 +102,15 @@ try {
   console.log(channel.status); // 'DISPUTE' or 'FINAL'
 } catch (err) {
   if (err instanceof NoPersistenceError) {
-    // No saved state to submit — configure persistence to avoid this
+    // Persistence store has no saved state for this channel.
+    // This can happen if persistence.clear() was called manually,
+    // or if the channel object was created without going through
+    // NitroGuard.open() / NitroGuard.restore().
   }
 }
 ```
 
-`forceClose()` requires at least one co-signed state in persistence. Without it, there's nothing to submit on-chain.
+`forceClose()` requires at least one co-signed state in persistence. NitroGuard always saves the opening state automatically — this error only occurs if the persistence store was manually cleared or the channel was never properly opened.
 
 ---
 
@@ -158,6 +161,6 @@ This gives you:
 
 | Error | When |
 |---|---|
-| `NoPersistenceError` | `forceClose()` called with no persistence configured |
+| `NoPersistenceError` | `forceClose()` called but persistence store has no saved state for this channel |
 | `CoSignatureTimeoutError` | ClearNode didn't respond to a state update |
 | `ClearNodeUnreachableError` | WebSocket connection to ClearNode failed |

@@ -308,7 +308,7 @@ All errors extend `NitroGuardError` and carry a `.code` string for programmatic 
 import {
   InvalidTransitionError,    // method called in wrong state
   CoSignatureTimeoutError,   // ClearNode didn't respond in time
-  NoPersistenceError,        // forceClose() with no persisted state
+  NoPersistenceError,        // forceClose() when persistence store has no state for this channel
   ProtocolValidationError,   // payload failed Zod schema
   ProtocolTransitionError,   // transition guard rejected the state
   ChannelNotFoundError,      // restore() with unknown channelId

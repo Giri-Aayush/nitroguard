@@ -151,7 +151,7 @@ console.log(channel.status);            // 'FINAL'
 
 ## 7. Add persistence (recommended for production)
 
-Without persistence, `forceClose()` has nothing to submit if ClearNode disappears.
+By default, NitroGuard uses an in-memory store (`MemoryAdapter`). `forceClose()` works fine during a session, but state is lost on process restart — so you can't recover after a crash. Use a durable adapter to survive restarts.
 
 ```ts
 import { NitroGuard, LevelDBAdapter } from 'nitroguard';

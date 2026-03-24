@@ -101,17 +101,18 @@ Throws `CoSignatureTimeoutError` if ClearNode doesn't respond. In that case, cal
 
 ---
 
-### `channel.forceClose()` — `ACTIVE → DISPUTE → FINAL`
+### `channel.forceClose()` — `ACTIVE → DISPUTE`
 
-Submits the latest co-signed state as an on-chain challenge. Waits for the challenge period to expire, then withdraws.
+Submits the latest co-signed state as an on-chain challenge. If a `custodyClient` is provided, also waits for the challenge period to expire and withdraws — reaching `FINAL` automatically.
 
 ```ts
 await channel.forceClose();
-// channel transitions: ACTIVE → DISPUTE → FINAL
+// With custodyClient:    ACTIVE → DISPUTE → FINAL → VOID
+// Without custodyClient: ACTIVE → DISPUTE  (you must settle manually)
 ```
 
-Throws `NoPersistenceError` if no persisted state exists (nothing to submit on-chain).
-Requires `custodyClient` in the open config.
+Throws `NoPersistenceError` if the persistence store has no saved state for this channel.
+`custodyClient` is required to reach `FINAL` automatically and withdraw funds.
 
 ---
 
@@ -180,8 +181,8 @@ try {
   if (err instanceof InvalidTransitionError) {
     console.log(err.message);
     // "Cannot call withdraw() in state ACTIVE. Expected: FINAL"
-    console.log(err.from);   // 'ACTIVE'
-    console.log(err.method); // 'withdraw'
+    console.log(err.from);      // 'ACTIVE'
+    console.log(err.attempted); // 'withdraw'
   }
 }
 ```

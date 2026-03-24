@@ -7,7 +7,7 @@
 NitroGuard ships React hooks in the `nitroguard/react` subpath. Import from there to keep your bundle clean — hooks and the core SDK tree-shake independently.
 
 ```bash
-npm install nitroguard viem @erc7824/nitrolite react react-dom
+npm install nitroguard viem react react-dom
 ```
 
 ---
