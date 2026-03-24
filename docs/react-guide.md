@@ -18,18 +18,33 @@ Wrap your app with `NitroGuardProvider`. The provider is SSR-safe — `createTra
 
 ```tsx
 import { NitroGuardProvider } from 'nitroguard/react';
+import { IndexedDBAdapter } from 'nitroguard';
+import type { ClearNodeTransport } from 'nitroguard';
 import { mainnet } from 'viem/chains';
+
+// Use yellow-ts in production (npm install yellow-ts).
+// For dev, inline the stub from docs/quick-start.md#3-create-a-transport.
+const createTransport = (): ClearNodeTransport => ({
+  isConnected: true,
+  clearNodeAddress: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+  connect:    async () => {},
+  disconnect: async () => {},
+  openChannel:  async (_id, state) => ({ ...state, sigClearNode: '0x', savedAt: Date.now() }),
+  closeChannel: async (_id, state) => ({ ...state, sigClearNode: '0x', savedAt: Date.now() }),
+  proposeState: async (_id, state) => ({ ...state, sigClearNode: '0x', savedAt: Date.now() }),
+  onMessage: (_handler) => () => {},
+});
 
 function App() {
   return (
     <NitroGuardProvider
       config={{
         clearnode: 'wss://clearnet.yellow.com/ws',
-        signer,
+        signer,     // your EIP712Signer from step 2 of quick-start
         chain:  mainnet,
         rpcUrl: 'https://eth.llamarpc.com',
       }}
-      createTransport={() => new MyTransport()}
+      createTransport={createTransport}
       createPersistence={() => new IndexedDBAdapter('my-app')}
     >
       <YourApp />
@@ -196,8 +211,8 @@ import { NitroGuardProvider } from 'nitroguard/react';
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <NitroGuardProvider
-      config={{ clearnode: process.env.NEXT_PUBLIC_CLEARNODE_URL!, ... }}
-      createTransport={() => new MyTransport()}
+      config={{ clearnode: process.env.NEXT_PUBLIC_CLEARNODE_URL!, signer, chain, rpcUrl }}
+      createTransport={createTransport}  // your ClearNodeTransport factory
     >
       {children}
     </NitroGuardProvider>

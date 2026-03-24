@@ -4,7 +4,7 @@
 
 # Persistence Guide
 
-NitroGuard saves every co-signed state so channels survive process restarts, page refreshes, and network partitions. Without persistence, `forceClose()` has nothing to submit on-chain if ClearNode disappears.
+NitroGuard saves every co-signed state so channels survive process restarts, page refreshes, and network partitions. By default it uses an in-memory store (`MemoryAdapter`) — sufficient for development, but state is lost on restart. For production, configure a durable adapter so `forceClose()` can submit your latest state even after a crash.
 
 ---
 
@@ -18,7 +18,7 @@ NitroGuard saves every co-signed state so channels survive process restarts, pag
 
 ### IndexedDBAdapter
 
-Default in browser environments. Uses the browser's built-in IndexedDB — survives tab refreshes and browser restarts, cleared only when the user wipes site data.
+Recommended for browser environments. Uses the browser's built-in IndexedDB — survives tab refreshes and browser restarts, cleared only when the user wipes site data. Pass it explicitly via the `persistence` option (NitroGuard defaults to `MemoryAdapter` if none is provided).
 
 ```ts
 import { IndexedDBAdapter } from 'nitroguard';
@@ -119,15 +119,23 @@ export class MyAdapter implements PersistenceAdapter {
   }
 
   async loadLatest(channelId: string): Promise<SignedState | null> {
-    // return null if not found
+    // return the state with the highest version, or null if not found
+  }
+
+  async load(channelId: string, version: number): Promise<SignedState | null> {
+    // return the state at the given version, or null if not found
+  }
+
+  async loadAll(channelId: string): Promise<SignedState[]> {
+    // return all states for the channel, sorted by version ascending
   }
 
   async listChannels(): Promise<string[]> {
-    // return all channelIds with saved state
+    // return all channelIds with at least one saved state
   }
 
   async clear(channelId: string): Promise<void> {
-    // called after FINAL + withdraw()
+    // called after FINAL + withdraw() — remove all states for this channel
   }
 }
 ```

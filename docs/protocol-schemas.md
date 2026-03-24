@@ -21,11 +21,14 @@ npm install zod  # peer dependency required for protocols
 ```ts
 import { PaymentProtocol } from 'nitroguard/protocols';
 
+const USDC        = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as `0x${string}`;
+const BOB_ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as `0x${string}`;
+
 const channel = await NitroGuard.open({ ...config, protocol: PaymentProtocol }, transport);
 
 await channel.send({
   type:   'payment',
-  to:     '0xBob...',          // recipient address
+  to:     BOB_ADDRESS,         // valid 40-char hex address
   amount: 10_000_000n,         // in token's smallest unit
   token:  USDC,                // ERC-20 address
   memo:   'coffee',            // optional, max 256 chars
@@ -39,19 +42,23 @@ Enforces: `amount > 0`, valid hex addresses, memo ≤ 256 chars.
 ```ts
 import { SwapProtocol } from 'nitroguard/protocols';
 
+const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as `0x${string}`;
+const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as `0x${string}`;
+
 const channel = await NitroGuard.open({ ...config, protocol: SwapProtocol }, transport);
 
 // Alice proposes
-await channel.send({
-  type:        'offer',
+const offer = {
+  type:        'offer' as const,
   offerToken:  USDC,  offerAmount: 100_000_000n,
   wantToken:   WETH,  wantAmount:  50_000_000_000_000_000n,
   expiry:      Date.now() + 60_000,
-});
+};
+await channel.send(offer);
 
-// Bob accepts (or cancels)
-await channel.send({ ...prevOffer, type: 'accept' });
-await channel.send({ ...prevOffer, type: 'cancel' });
+// Bob accepts (or cancels) — spread the original offer and override type
+await channel.send({ ...offer, type: 'accept' });
+await channel.send({ ...offer, type: 'cancel' });
 ```
 
 Enforces: both amounts > 0, offer and want tokens must differ, `accept` must arrive before `expiry`.
@@ -99,10 +106,12 @@ const PaymentProtocol = defineProtocol({
 ## Using a protocol
 
 ```ts
+const BOB_ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as `0x${string}`;
+
 const channel = await NitroGuard.open({ ...config, protocol: PaymentProtocol }, transport);
 
 // TypeScript knows what send() accepts
-await channel.send({ to: '0xBob...', amount: 10n * 10n ** 6n });
+await channel.send({ to: BOB_ADDRESS, amount: 10n * 10n ** 6n });
 
 // Type error — 'note' is not in the schema
 await channel.send({ note: 'hello' }); // TS2345
@@ -169,6 +178,8 @@ const OptionsProtocol = defineProtocol({
     exerciseBeforeExpiry: (_prev, next) => next.type !== 'exercise' || Date.now() <= next.expiry,
   },
 });
+
+const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as `0x${string}`;
 
 const channel = await NitroGuard.open(
   { ...config, assets: [{ token: USDC, amount: 500n * 10n ** 6n }], protocol: OptionsProtocol },
