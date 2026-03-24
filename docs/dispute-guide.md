@@ -118,16 +118,16 @@ try {
 
 ```ts
 import { NitroGuard, LevelDBAdapter, CustodyClient } from 'nitroguard';
-import { createPublicClient, createWalletClient, http } from 'viem';
+import { createWalletClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
-const publicClient  = createPublicClient({ chain: mainnet, transport: http(RPC_URL) });
-const walletClient  = createWalletClient({ account, chain: mainnet, transport: http(RPC_URL) });
+const walletClient = createWalletClient({ account, chain: mainnet, transport: http(RPC_URL) });
 
 const custodyClient = new CustodyClient({
-  publicClient,
+  rpcUrl:         RPC_URL,
+  chain:          mainnet,
+  custodyAddress: '0xYourCustodyContractAddress' as `0x${string}`,
   walletClient,
-  custodyAddress: CUSTODY_ADDRESS[mainnet.id],
 });
 
 const persistence = await LevelDBAdapter.create('./channel-db');

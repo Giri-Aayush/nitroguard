@@ -29,9 +29,13 @@ npm install nitroguard viem
 
 ```ts
 import { NitroGuard } from 'nitroguard';
+import type { ClearNodeTransport, SignedState } from 'nitroguard';
 import { createWalletClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
+
+const USDC        = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as `0x${string}`;
+const BOB_ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as `0x${string}`;
 
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
 const wallet  = createWalletClient({ account, chain: mainnet, transport: http() });
@@ -41,11 +45,19 @@ const signer  = {
   signMessage:   (p) => wallet.signMessage(p),
 };
 
-// transport connects NitroGuard to ClearNode over WebSocket.
-// Use yellow-ts in production. For tests, implement ClearNodeTransport
-// with a simple mock or use MockClearNode from the source repo's test/helpers.
-// See docs/quick-start.md for details.
-const transport = new MyClearNodeTransport('wss://clearnet.yellow.com/ws', signer);
+// Use yellow-ts in production: npm install yellow-ts
+// For a local dev stub, implement ClearNodeTransport — see docs/quick-start.md#3-create-a-transport
+const CLEARNODE_ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as `0x${string}`;
+const transport: ClearNodeTransport = {
+  isConnected: true,
+  clearNodeAddress: CLEARNODE_ADDRESS,
+  connect:    async () => {},
+  disconnect: async () => {},
+  openChannel:  async (_id, state) => ({ ...state, sigClearNode: '0x' as `0x${string}`, savedAt: Date.now() }),
+  closeChannel: async (_id, state) => ({ ...state, sigClearNode: '0x' as `0x${string}`, savedAt: Date.now() }),
+  proposeState: async (_id, state) => ({ ...state, sigClearNode: '0x' as `0x${string}`, savedAt: Date.now() }),
+  onMessage: (_handler) => () => {},
+};
 
 const channel = await NitroGuard.open(
   {
@@ -58,8 +70,8 @@ const channel = await NitroGuard.open(
   transport,
 );
 
-await channel.send({ type: 'payment', to: bob, amount: 10n * 10n ** 6n });
-await channel.send({ type: 'payment', to: bob, amount: 5n  * 10n ** 6n });
+await channel.send({ type: 'payment', to: BOB_ADDRESS, amount: 10n * 10n ** 6n });
+await channel.send({ type: 'payment', to: BOB_ADDRESS, amount: 5n  * 10n ** 6n });
 
 await channel.close();
 ```
@@ -83,7 +95,7 @@ Opens a channel and returns it in `ACTIVE` state.
 | `chain` | `Chain` | ✓ | viem Chain object |
 | `rpcUrl` | `string` | ✓ | RPC endpoint |
 | `assets` | `AssetAllocation[]` | ✓ | Tokens and amounts to deposit |
-| `persistence` | `PersistenceAdapter` | | Defaults to IndexedDB / LevelDB |
+| `persistence` | `PersistenceAdapter` | | Defaults to `MemoryAdapter` (in-memory; use `LevelDBAdapter` or `IndexedDBAdapter` for production) |
 | `custodyClient` | `CustodyClient` | | Required for `autoDispute` and `forceClose` |
 | `autoDispute` | `boolean` | | Auto-respond to stale challenges |
 | `clearnodeSilenceTimeout` | `number` | | ms of silence before `forceClose()` triggers |
