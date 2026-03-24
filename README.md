@@ -41,13 +41,20 @@ const signer  = {
   signMessage:   (p) => wallet.signMessage(p),
 };
 
-const channel = await NitroGuard.open({
-  clearnode: 'wss://clearnet.yellow.com/ws',
-  signer,
-  chain:  mainnet,
-  rpcUrl: 'https://eth.llamarpc.com',
-  assets: [{ token: USDC, amount: 100n * 10n ** 6n }],
-});
+// transport connects NitroGuard to ClearNode — use yellow-ts in production
+// or MockClearNode in tests (see docs/quick-start.md)
+const transport = new MyClearNodeTransport('wss://clearnet.yellow.com/ws', signer);
+
+const channel = await NitroGuard.open(
+  {
+    clearnode: 'wss://clearnet.yellow.com/ws',
+    signer,
+    chain:  mainnet,
+    rpcUrl: 'https://eth.llamarpc.com',
+    assets: [{ token: USDC, amount: 100n * 10n ** 6n }],
+  },
+  transport,
+);
 
 await channel.send({ type: 'payment', to: bob, amount: 10n * 10n ** 6n });
 await channel.send({ type: 'payment', to: bob, amount: 5n  * 10n ** 6n });
@@ -61,9 +68,11 @@ await channel.close();
 
 ## Core API
 
-### `NitroGuard.open(config)`
+### `NitroGuard.open(config, transport)`
 
 Opens a channel and returns it in `ACTIVE` state.
+
+`transport` is a `ClearNodeTransport` — the bridge between NitroGuard and ClearNode's WebSocket API. Use `yellow-ts` for production or `MockClearNode` (included in the package) for tests. See [Quick Start](docs/quick-start.md#3-create-a-transport) for details.
 
 | Option | Type | Required | |
 |---|---|:---:|---|
@@ -98,15 +107,21 @@ channel.on('stateUpdate',  (version, state) => {})
 channel.on('error',        (err) => {})
 ```
 
-### `NitroGuard.restore(channelId, config)`
+### `NitroGuard.restore(channelId, config, transport)`
 
 Resumes a channel after process restart or page refresh. Reconnects to ClearNode and picks up at the last persisted version.
 
 ```ts
-const channel = await NitroGuard.restore(channelId, {
-  clearnode, signer, chain, rpcUrl, persistence,
-});
+const channel = await NitroGuard.restore(channelId, { clearnode, signer, chain, rpcUrl, persistence }, transport);
 // channel.version === whatever you left it at
+```
+
+### `NitroGuard.restoreAll(config, transport)`
+
+Restores all channels stored in the persistence adapter — useful on startup.
+
+```ts
+const channels = await NitroGuard.restoreAll({ clearnode, signer, chain, rpcUrl, persistence }, transport);
 ```
 
 ---
@@ -120,15 +135,18 @@ Two independent layers of protection:
 **ClearNodeMonitor** (`clearnodeSilenceTimeout`) — tracks the last message timestamp. Triggers `forceClose()` automatically if ClearNode goes quiet.
 
 ```ts
-const channel = await NitroGuard.open({
-  ...config,
-  persistence,
-  custodyClient,
-  autoDispute:             true,
-  clearnodeSilenceTimeout: 60_000,
-  onChallengeDetected: (id)       => notify(`Challenge on ${id}`),
-  onFundsReclaimed:    (id, amts) => log('Recovered', amts),
-});
+const channel = await NitroGuard.open(
+  {
+    ...config,
+    persistence,
+    custodyClient,
+    autoDispute:             true,
+    clearnodeSilenceTimeout: 60_000,
+    onChallengeDetected: (id)       => notify(`Challenge on ${id}`),
+    onFundsReclaimed:    (id, amts) => log('Recovered', amts),
+  },
+  transport,
+);
 ```
 
 Both require a `persistence` adapter (to have a state to submit) and `custodyClient` (to submit it).

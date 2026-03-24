@@ -25,7 +25,7 @@ import { IndexedDBAdapter } from 'nitroguard';
 
 const persistence = new IndexedDBAdapter('nitroguard-v1');
 
-const channel = await NitroGuard.open({ ...config, persistence });
+const channel = await NitroGuard.open({ ...config, persistence }, transport);
 ```
 
 ### LevelDBAdapter
@@ -58,7 +58,7 @@ In-memory only. Use in tests where you want a clean state per test case.
 import { MemoryAdapter } from 'nitroguard';
 
 const persistence = new MemoryAdapter();
-const channel = await NitroGuard.open({ ...config, persistence });
+const channel = await NitroGuard.open({ ...config, persistence }, transport);
 ```
 
 ---
@@ -71,9 +71,7 @@ import { NitroGuard, LevelDBAdapter, ChannelNotFoundError } from 'nitroguard';
 const persistence = await LevelDBAdapter.create('./channel-db');
 
 try {
-  const channel = await NitroGuard.restore(savedChannelId, {
-    clearnode, signer, chain, rpcUrl, persistence,
-  });
+  const channel = await NitroGuard.restore(savedChannelId, { clearnode, signer, chain, rpcUrl, persistence }, transport);
 
   console.log('version:', channel.version);
   console.log('status:', channel.status);
@@ -92,7 +90,7 @@ try {
 const channelIds = await persistence.listChannels();
 // ['0xabc...', '0xdef...']
 
-const channel = await NitroGuard.restore(channelIds[0], { ...config, persistence });
+const channel = await NitroGuard.restore(channelIds[0], { ...config, persistence }, transport);
 ```
 
 In React:

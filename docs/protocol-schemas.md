@@ -99,10 +99,7 @@ const PaymentProtocol = defineProtocol({
 ## Using a protocol
 
 ```ts
-const channel = await NitroGuard.open({
-  ...config,
-  protocol: PaymentProtocol,
-});
+const channel = await NitroGuard.open({ ...config, protocol: PaymentProtocol }, transport);
 
 // TypeScript knows what send() accepts
 await channel.send({ to: '0xBob...', amount: 10n * 10n ** 6n });
@@ -173,11 +170,10 @@ const OptionsProtocol = defineProtocol({
   },
 });
 
-const channel = await NitroGuard.open({
-  ...config,
-  assets:   [{ token: USDC, amount: 500n * 10n ** 6n }],
-  protocol: OptionsProtocol,
-});
+const channel = await NitroGuard.open(
+  { ...config, assets: [{ token: USDC, amount: 500n * 10n ** 6n }], protocol: OptionsProtocol },
+  transport,
+);
 
 await channel.send({
   type:        'open',

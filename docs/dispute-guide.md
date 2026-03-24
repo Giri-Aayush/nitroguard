@@ -25,14 +25,17 @@ State channels have two failure modes:
 **Enable with `autoDispute: true`:**
 
 ```ts
-const channel = await NitroGuard.open({
-  clearnode, signer, chain, rpcUrl, assets,
-  persistence,
-  custodyClient,
-  autoDispute: true,
-  onChallengeDetected: (id)       => console.log(`Challenge on ${id}`),
-  onFundsReclaimed:    (id, amts) => console.log('Recovered', amts),
-});
+const channel = await NitroGuard.open(
+  {
+    clearnode, signer, chain, rpcUrl, assets,
+    persistence,
+    custodyClient,
+    autoDispute: true,
+    onChallengeDetected: (id)       => console.log(`Challenge on ${id}`),
+    onFundsReclaimed:    (id, amts) => console.log('Recovered', amts),
+  },
+  transport,
+);
 ```
 
 **Requirements:**
@@ -126,19 +129,22 @@ const custodyClient = new CustodyClient({
 
 const persistence = await LevelDBAdapter.create('./channel-db');
 
-const channel = await NitroGuard.open({
-  clearnode: 'wss://clearnet.yellow.com/ws',
-  signer,
-  chain: mainnet,
-  rpcUrl: RPC_URL,
-  assets: [{ token: USDC, amount: 100n * 10n ** 6n }],
-  persistence,
-  custodyClient,
-  autoDispute:             true,
-  clearnodeSilenceTimeout: 60_000,
-  onChallengeDetected: (id)       => alertOps(`Challenge detected: ${id}`),
-  onFundsReclaimed:    (id, amts) => logRecovery(id, amts),
-});
+const channel = await NitroGuard.open(
+  {
+    clearnode: 'wss://clearnet.yellow.com/ws',
+    signer,
+    chain: mainnet,
+    rpcUrl: RPC_URL,
+    assets: [{ token: USDC, amount: 100n * 10n ** 6n }],
+    persistence,
+    custodyClient,
+    autoDispute:             true,
+    clearnodeSilenceTimeout: 60_000,
+    onChallengeDetected: (id)       => alertOps(`Challenge detected: ${id}`),
+    onFundsReclaimed:    (id, amts) => logRecovery(id, amts),
+  },
+  transport,
+);
 ```
 
 This gives you:
